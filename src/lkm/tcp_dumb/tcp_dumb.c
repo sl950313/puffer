@@ -3,6 +3,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/stat.h>
+#include <linux/string.h>
 
 #define TABLE_SIZE 65536
 #define PROC_NAME "tcp_dumb"
@@ -16,17 +17,21 @@ static const u32 default_cwnd = 10;
 static ssize_t dumb_write(struct file *filp, const char *buf, size_t count,
                 loff_t *offp)
 {
-        char msg[sizeof(u32)];
+        /* beware of the null terminator */
+        char msg[sizeof(u32) + 1];
         u16 port, cwnd;
+        memset(msg, 0, sizeof(msg));
         if (count > sizeof(msg)) {
-                printk("write size %ld exceeds u16 size %ld", count,
+                printk(KERN_ERR "write size %ld exceeds u16 size %ld", count,
                                 sizeof(u16));
         } else {
                 copy_from_user(msg, buf, count);
+                msg[count - 1] = 0;
                 cwnd = *((u16 *)msg);
                 port = *((u16 *)msg + 1);
                 cwnd_table[port] = cwnd;
-                printk("port %d cwnd set to %d\n", port, cwnd);
+                printk(KERN_INFO "port %d cwnd set to %d\n", port, cwnd);
+                printk(KERN_INFO "message %s %ld\n", msg, count);
         }
         return count;
 }
@@ -53,7 +58,6 @@ static struct tcp_congestion_ops tcp_dumb = {
 static const struct file_operations dumb_proc_fops = {
         .owner = THIS_MODULE,
         .write = dumb_write,
-        .release = single_release,
 };
 
 static int __init tcp_dumb_register(void)
@@ -64,7 +68,7 @@ static int __init tcp_dumb_register(void)
                 cwnd_table[i] = default_cwnd;
         }
         /* register TCP */
-        tcp_register_congestion_control(&tcp_dumb);
+        // tcp_register_congestion_control(&tcp_dumb);
         /* create proc file */
         proc_create(PROC_NAME, S_IRWXUGO, NULL, &dumb_proc_fops);
         return 0;
@@ -72,7 +76,8 @@ static int __init tcp_dumb_register(void)
 
 static void __exit tcp_dumb_unregister(void)
 {
-        tcp_unregister_congestion_control(&tcp_dumb);
+        // tcp_unregister_congestion_control(&tcp_dumb);
+        remove_proc_entry(PROC_NAME, NULL);
 }
 
 
