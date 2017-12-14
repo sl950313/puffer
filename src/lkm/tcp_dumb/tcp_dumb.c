@@ -38,7 +38,7 @@ static ssize_t dumb_write(struct file *filp, const char *buf, size_t count,
 
 
 /* TCP */
-static void dumb_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+static void dumb_init(struct sock *sk)
 {
 }
 
@@ -48,11 +48,33 @@ static u32 dumb_ssthresh(struct sock *sk)
         return tp->snd_ssthresh;
 }
 
+static void dumb_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+{
+}
+
+static void dumb_state(struct sock *sk, u8 new_state)
+{
+}
+
+static u32 dumb_undo_cwnd(struct sock *sk)
+{
+        const struct tcp_sock *tp = tcp_sk(sk);
+        return tp->snd_cwnd;
+}
+
+static void dumb_acked(struct sock *sk, const struct ack_sample *sample)
+{
+}
+
 static struct tcp_congestion_ops tcp_dumb = {
         .name           = "tcp_dumb",
-        .ssthresh       = dumb_ssthresh,
         .owner          = THIS_MODULE,
+        .init           = dumb_init,
+        .ssthresh       = dumb_ssthresh,
         .cong_avoid     = dumb_cong_avoid,
+        .set_state      = dumb_state,
+        .undo_cwnd      = dumb_undo_cwnd,
+        .pkts_acked     = dumb_acked,
 };
 
 static const struct file_operations dumb_proc_fops = {
@@ -68,7 +90,7 @@ static int __init tcp_dumb_register(void)
                 cwnd_table[i] = default_cwnd;
         }
         /* register TCP */
-        // tcp_register_congestion_control(&tcp_dumb);
+        tcp_register_congestion_control(&tcp_dumb);
         /* create proc file */
         proc_create(PROC_NAME, S_IRWXUGO, NULL, &dumb_proc_fops);
         return 0;
@@ -76,7 +98,7 @@ static int __init tcp_dumb_register(void)
 
 static void __exit tcp_dumb_unregister(void)
 {
-        // tcp_unregister_congestion_control(&tcp_dumb);
+        tcp_unregister_congestion_control(&tcp_dumb);
         remove_proc_entry(PROC_NAME, NULL);
 }
 
