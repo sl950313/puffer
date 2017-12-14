@@ -1,7 +1,11 @@
-obj-m += tcp_dumb.o
+all: kernel user
 
-all:
-		make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+kernel:
+	make -f kernel.mk
+
+user:
+	make -f user.mk
 
 clean:
-		make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+	make -f kernel.mk clean
+	make -f user.mk clean
