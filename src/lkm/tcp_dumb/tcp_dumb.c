@@ -14,26 +14,27 @@
 static u16 cwnd_table[TABLE_SIZE];
 static const u32 default_cwnd = 42;
 
+struct ctl_msg {
+        unsigned short port;
+        unsigned short cwnd;
+};
+
 /* proc */
 static ssize_t dumb_write(struct file *filp, const char *buf, size_t count,
                 loff_t *offp)
 {
-        /* beware of the null terminator */
-        char msg[sizeof(u32) + 1];
+        struct ctl_msg msg;
         u16 port, cwnd;
 
-        memset(msg, 0, sizeof(msg));
+        memset((char *)&msg, 0, sizeof(msg));
         if (count > sizeof(msg)) {
                 printk(KERN_ERR "write size %ld exceeds u16 size %ld", count,
                                 sizeof(u16));
         } else {
-                copy_from_user(msg, buf, count);
-                msg[count - 1] = 0;
-                cwnd = *((u16 *)msg);
-                port = *((u16 *)msg + 1);
+                copy_from_user(&msg, buf, count);
+                cwnd = msg.cwnd;
+                port = msg.port;
                 cwnd_table[port] = cwnd;
-                printk(KERN_INFO "port %d cwnd set to %d\n", port, cwnd);
-                printk(KERN_INFO "message %s %ld\n", msg, count);
         }
         return count;
 }
