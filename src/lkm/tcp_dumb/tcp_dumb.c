@@ -4,6 +4,7 @@
 #include <linux/seq_file.h>
 #include <linux/stat.h>
 #include <linux/string.h>
+#include <linux/socket.h>
 
 #define TABLE_SIZE 65536
 #define PROC_NAME "tcp_dumb"
@@ -11,7 +12,7 @@
 /* hold cwnd info indexed by port number
 */
 static u16 cwnd_table[TABLE_SIZE];
-static const u32 default_cwnd = 10;
+static const u32 default_cwnd = 42;
 
 /* proc */
 static ssize_t dumb_write(struct file *filp, const char *buf, size_t count,
@@ -20,6 +21,7 @@ static ssize_t dumb_write(struct file *filp, const char *buf, size_t count,
         /* beware of the null terminator */
         char msg[sizeof(u32) + 1];
         u16 port, cwnd;
+
         memset(msg, 0, sizeof(msg));
         if (count > sizeof(msg)) {
                 printk(KERN_ERR "write size %ld exceeds u16 size %ld", count,
@@ -62,8 +64,22 @@ static u32 dumb_undo_cwnd(struct sock *sk)
         return tp->snd_cwnd;
 }
 
+static u16 get_port(struct sock *sk) {
+        struct sockaddr_in addr_in;
+        const struct tcp_sock *tp = tcp_sk(sk);
+        tp->inet_conn.icsk_af_ops->addr2sockaddr(sk, (struct sockaddr *)&addr_in);
+        return addr_in.sin_port;
+}
+
 static void dumb_acked(struct sock *sk, const struct ack_sample *sample)
 {
+        struct tcp_sock *tp = tcp_sk(sk);
+        u16 port, cwnd;
+
+        port = get_port(sk);
+        cwnd = cwnd_table[port];
+        tp->snd_cwnd = cwnd;
+        printk(KERN_INFO "set sock %d to cwnd %d\n", port, cwnd);
 }
 
 static struct tcp_congestion_ops tcp_dumb = {
@@ -101,7 +117,6 @@ static void __exit tcp_dumb_unregister(void)
         tcp_unregister_congestion_control(&tcp_dumb);
         remove_proc_entry(PROC_NAME, NULL);
 }
-
 
 module_init(tcp_dumb_register);
 module_exit(tcp_dumb_unregister);
