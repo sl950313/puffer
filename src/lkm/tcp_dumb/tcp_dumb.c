@@ -14,9 +14,16 @@
 static u16 cwnd_table[TABLE_SIZE];
 static const u32 default_cwnd = 42;
 
+struct tcp_tuple {
+        u32 saddr;
+        u32 iaddr;
+        u16 sport;
+        u16 iport;
+};
+
 struct ctl_msg {
-        unsigned short port;
         unsigned short cwnd;
+        struct tcp_tuple tcp;
 };
 
 /* proc */
@@ -33,7 +40,7 @@ static ssize_t dumb_write(struct file *filp, const char *buf, size_t count,
         } else {
                 copy_from_user(&msg, buf, count);
                 cwnd = msg.cwnd;
-                port = msg.port;
+                port = msg.tcp.iport;
                 cwnd_table[port] = cwnd;
         }
         return count;
@@ -65,19 +72,25 @@ static u32 dumb_undo_cwnd(struct sock *sk)
         return tp->snd_cwnd;
 }
 
-static u16 get_port(struct sock *sk) {
+static void get_tcp_tuple(struct sock *sk, struct tcp_tuple *tuple) {
         struct sockaddr_in addr_in;
         const struct tcp_sock *tp = tcp_sk(sk);
-        tp->inet_conn.icsk_af_ops->addr2sockaddr(sk, (struct sockaddr *)&addr_in);
-        return addr_in.sin_port;
+        tp->inet_conn.icsk_af_ops->addr2sockaddr(sk,
+                        (struct sockaddr *)&addr_in);
+        tuple->saddr  = tp->inet_conn.icsk_inet.inet_saddr;
+        tuple->sport  = tp->inet_conn.icsk_inet.inet_sport;
+        tuple->iaddr  = addr_in.sin_addr.s_addr;
+        tuple->iport  = addr_in.sin_port;
 }
 
 static void dumb_acked(struct sock *sk, const struct ack_sample *sample)
 {
         struct tcp_sock *tp = tcp_sk(sk);
         u16 port, cwnd;
+        struct tcp_tuple tuple;
 
-        port = get_port(sk);
+        get_tcp_tuple(sk, &tuple);
+        port = tuple.iport;
         cwnd = cwnd_table[port];
         tp->snd_cwnd = cwnd;
         printk(KERN_INFO "set sock %d to cwnd %d\n", port, cwnd);

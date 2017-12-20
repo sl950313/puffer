@@ -12,9 +12,16 @@
 #define PROC_NAME "/proc/tcp_dumb"
 #define BUFFER_SIZE 4
 
+struct tcp_tuple {
+        unsigned int saddr;
+        unsigned int iaddr;
+        unsigned short sport;
+        unsigned short iport;
+};
+
 struct ctl_msg {
-        unsigned short port;
         unsigned short cwnd;
+        struct tcp_tuple tcp;
 };
 
 int main(void)

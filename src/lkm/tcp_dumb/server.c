@@ -14,10 +14,18 @@
 
 #define on_error(...) { fprintf(stderr, __VA_ARGS__); fflush(stderr); exit(1); }
 
-struct ctl_msg {
-        unsigned short port;
-        unsigned short cwnd;
+struct tcp_tuple {
+        unsigned int saddr;
+        unsigned int iaddr;
+        unsigned short sport;
+        unsigned short iport;
 };
+
+struct ctl_msg {
+        unsigned short cwnd;
+        struct tcp_tuple tcp;
+};
+
 
 int main (int argc, char *argv[]) {
         if (argc < 2) on_error("Usage: %s [port]\n", argv[0]);
@@ -85,7 +93,10 @@ int main (int argc, char *argv[]) {
                                 int cwnd = atoi(buf);
                                 struct ctl_msg msg = {
                                         .cwnd = cwnd,
-                                        .port = port,
+                                        .tcp.iport = port,
+                                        .tcp.sport = server.sin_port,
+                                        .tcp.iaddr = client.sin_addr.s_addr,
+                                        .tcp.saddr = server.sin_addr.s_addr,
                                 };
 
                                 write(fifo_fd, &msg, sizeof msg);
