@@ -122,7 +122,8 @@ video_ms.addEventListener('sourceopen', function(e) {
     if (video_buffer.buffered.length > 0) {
       ws.send(JSON.stringify({
         type: 'client-vbuf',
-        bufferLength: video_buffer.buffered.end(0) - video.currentTime
+        bufferLength: video_buffer.buffered.end(0) - video.currentTime,
+        avTimeSync: video.currentTime - audio.currentTime
       }))
     }
     setTimeout(send_vbuf_info, 1000);
@@ -132,7 +133,8 @@ video_ms.addEventListener('sourceopen', function(e) {
     if (audio_buffer.buffered.length > 0) {
       ws.send(JSON.stringify({
         type: 'client-abuf',
-        bufferLength: audio_buffer.buffered.end(0) - audio.currentTime
+        bufferLength: audio_buffer.buffered.end(0) - audio.currentTime,
+        avTimeSync: video.currentTime - audio.currentTime
       }))
     }
     setTimeout(send_abuf_info, 2000);
