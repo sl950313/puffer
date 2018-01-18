@@ -16,8 +16,6 @@ const app = express();
 app.use(express.static(path.join(__dirname, '/static')));
 const server = http.createServer(app);
 
-const audio_dir = '64k'
-
 function create_frame(header, data) {
   console.log(header);
   var header_enc = new encoder.TextEncoder().encode(JSON.stringify(header));
@@ -28,16 +26,6 @@ function create_frame(header, data) {
   return frame;
 }
 
-function shuffle(a) {
-  var j, x, i;
-  for (i = a.length - 1; i > 0; i--) {
-    j = Math.floor(Math.random() * (i + 1));
-    x = a[i];
-    a[i] = a[j];
-    a[j] = x;
-  }
-}
-
 function send_video(ws, vq, initChunk, numChunks) {
   // send init segment
   fs.readFile(path.join(__dirname, '/static/media', vq, 'init.mp4'),
@@ -45,51 +33,65 @@ function send_video(ws, vq, initChunk, numChunks) {
       if (err) {
         console.log(err);
       } else {
-        var header = {
-          type: 'video-init',
-          mimeCodec: 'video/mp4; codecs="avc1.42E020"',
-          quality: vq
-        }
-        ws.send(create_frame(header, data));
-
-        // send media segments
-        for (var i = initChunk; i < initChunk + numChunks; i++) {
-          var data2 = fs.readFileSync(
-            path.join(__dirname, '/static/media', vq,
-              String(i * 180180) + '.m4s'))
+        try {
           var header = {
-            type: 'video-chunk',
+            type: 'video-init',
+            mimeCodec: 'video/mp4; codecs="avc1.42E020"', // <--- this works
+            // mimeCodec: 'video/mp4; codecs="avc1.42E020, avc1.42E01F"', // <--- this doesn't work
             quality: vq
           }
-          ws.send(create_frame(header, data2));
+          ws.send(create_frame(header, data));
+
+          // send media segments
+          for (var i = initChunk; i < initChunk + numChunks; i++) {
+            var data2 = fs.readFileSync(
+              path.join(__dirname, '/static/media', vq,
+                String(i * 180180) + '.m4s'))
+            var header = {
+              type: 'video-chunk',
+              quality: vq
+            }
+            ws.send(create_frame(header, data2));
+          }
+        } catch (e) {
+          console.log(e);
         }
       }
     });
-
-  // fs.readFile(path.join(__dirname, '/static/media', audio_dir, 'init.webm'),
-  //   function(err, data) {
-  //     if (err) {
-  //       console.log(err);
-  //     } else {
-  //       var header = {
-  //         type: 'audio-init',
-  //         mimeCodec: 'audio/webm; codecs="opus"',
-  //         bitrate: 64
-  //       }
-  //       ws.send(create_frame(header, data));
-  //
-  //       for (var i = 0; i <= 24; i++) {
-  //         var data2 = fs.readFileSync(path.join(__dirname, '/static/media',
-  //           audio_dir, String(i * 432000) + '.chk'));
-  //         var header = {
-  //           type: 'audio-chunk',
-  //           bitrate: 64
-  //         }
-  //         ws.send(create_frame(header, data2));
-  //       }
-  //     }
-  //   });
 }
+
+function send_audio(ws, aq, initChunk, numChunks) {
+  fs.readFile(path.join(__dirname, '/static/media', aq, 'init.webm'),
+    function(err, data) {
+      if (err) {
+        console.log(err);
+      } else {
+        try {
+          var header = {
+            type: 'audio-init',
+            mimeCodec: 'audio/webm; codecs="opus"',
+            quality: aq
+          }
+          ws.send(create_frame(header, data));
+
+          for (var i = initChunk; i < initChunk + numChunks; i++) {
+            var data2 = fs.readFileSync(path.join(__dirname, '/static/media',
+              aq, String(i * 432000) + '.chk'));
+            var header = {
+              type: 'audio-chunk',
+              quality: aq
+            }
+            ws.send(create_frame(header, data2));
+          }
+        } catch (e) {
+          console.log(e);
+        }
+      }
+    });
+}
+
+VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
+AUDIO_QUALITIES = ['128k', '64k', '32k'];
 
 const ws_server = new WebSocket.Server({server});
 ws_server.on('connection', function(ws, req) {
@@ -97,14 +99,7 @@ ws_server.on('connection', function(ws, req) {
 
   var i = 0;
   function send_video_wrapper() {
-    var vq;
-    if (i % 3 == 0) {
-      vq = '1280x720-23';
-    } else if (i % 3 == 1) {
-      vq = '854x480-23';
-    } else {
-      vq = '640x360-23';
-    }
+    var vq = VIDEO_QUALITIES[i % VIDEO_QUALITIES.length];
     try {
       send_video(ws, vq, i, 1);
     } catch (e) {
@@ -113,14 +108,30 @@ ws_server.on('connection', function(ws, req) {
     i++;
   }
 
+  var j = 0;
+  function send_audio_wrapper() {
+    var aq = AUDIO_QUALITIES[j % AUDIO_QUALITIES.length];
+    try {
+      send_audio(ws, aq, j, 1);
+    } catch (e) {
+      console.log(e);
+    }
+    j++;
+  }
+
   ws.on('message', function(data) {
     var message = JSON.parse(data);
     console.log(message);
     if (message.type == 'client-hello') {
       send_video_wrapper();
+      send_audio_wrapper();
     } else if (message.type == 'client-vbuf') {
-      if (message.buffered < 10) {
+      if (message.bufferLength < 10) {
         send_video_wrapper();
+      }
+    } else if (message.type == 'client-abuf') {
+      if (message.bufferLength < 10) {
+        send_audio_wrapper();
       }
     }
   });
