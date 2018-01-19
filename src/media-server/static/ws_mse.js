@@ -118,12 +118,19 @@ video_ms.addEventListener('sourceopen', function(e) {
     }, 100);
   }
 
+  const AV_SYNC_TOL_SECS = 0.05;
+
+  function get_av_sync_error() {
+    return video.currentTime - audio.currentTime;
+  }
+
+
   function send_vbuf_info() {
     if (video_buffer.buffered.length > 0) {
       ws.send(JSON.stringify({
         type: 'client-vbuf',
         bufferLength: video_buffer.buffered.end(0) - video.currentTime,
-        avTimeSync: video.currentTime - audio.currentTime
+        avSyncError: get_av_sync_error()
       }))
     }
     setTimeout(send_vbuf_info, 1000);
@@ -134,10 +141,24 @@ video_ms.addEventListener('sourceopen', function(e) {
       ws.send(JSON.stringify({
         type: 'client-abuf',
         bufferLength: audio_buffer.buffered.end(0) - audio.currentTime,
-        avTimeSync: video.currentTime - audio.currentTime
+        avSyncError: get_av_sync_error()
       }))
     }
     setTimeout(send_abuf_info, 2000);
+  }
+
+  function av_sync() {
+    // Somewhat kludgey way of fixing the sync problem
+    var av_sync_error = get_av_sync_error();
+    if (Math.abs(av_sync_error) > AV_SYNC_TOL_SECS) {
+      console.log('av-resync: err=' + av_sync_error);
+      if (av_sync_error < 0) {
+        video.currentTime = audio.currentTime;
+      } else {
+        audio.currentTime = video.currentTime;
+      }
+    }
+    setTimeout(av_sync, 1000);
   }
 
   setTimeout(function() {
@@ -145,6 +166,7 @@ video_ms.addEventListener('sourceopen', function(e) {
     audio.play();
     send_vbuf_info();
     send_abuf_info();
+    av_sync();
   }, 200);
 });
 
