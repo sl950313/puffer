@@ -135,6 +135,14 @@ ws_server.on('connection', function(ws, req) {
       }
     }
   });
+
+  ws.on('error', function (e) {
+    console.log(e);
+  });
+});
+
+ws_server.on('error', function (e) {
+  console.log(e);
 });
 
 app.get('/', function(req, res) {
