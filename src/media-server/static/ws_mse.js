@@ -29,47 +29,42 @@ function parse_message(data) {
 function handle_message(e) {
   var message = parse_message(e.data);
   console.log(message.header.type, message.header.quality);
-  if (message.header.type == 'audio-init') {
-    if (!audio_buffer) {
-      audio_buffer = audio_ms.addSourceBuffer(message.header.mimeCodec);
-      audio_buffer.mode = 'sequence';
-      audio_buffer.addEventListener('updateend', function(e) {
-        if (!audio_buffer.updating && pending_audio_chunks.length > 0) {
-          audio_buffer.appendBuffer(pending_audio_chunks.shift());
-        }
-      });
-      // audio_buffer.addEventListener('updatestart', function(e) {});
-      audio_buffer.addEventListener('error', function(e) {
-        console.log('error', e);
-      });
-      audio_buffer.addEventListener('abort', function(e) {
-        console.log('abort', e);
-      });
-      // audio_buffer.addEventListener('update', function(e) {});
-    }
+  if (message.header.type == 'channel-init') {
+    video_buffer = video_ms.addSourceBuffer(message.header.videoCodec);
+    video_buffer.mode = 'sequence';
+    video_buffer.addEventListener('updateend', function(e) {
+      if (!video_buffer.updating && pending_video_chunks.length > 0) {
+        video_buffer.appendBuffer(pending_video_chunks.shift());
+      }
+    });
+    // video_buffer.addEventListener('updatestart', function(e) {});
+    video_buffer.addEventListener('error', function(e) {
+      console.log('error', e);
+    });
+    video_buffer.addEventListener('abort', function(e) {
+      console.log('abort', e);
+    });
+    // video_buffer.addEventListener('update', function(e) {});
+
+    audio_buffer = audio_ms.addSourceBuffer(message.header.audioCodec);
+    audio_buffer.mode = 'sequence';
+    audio_buffer.timestampOffset = message.header.audioOffset;
+    audio_buffer.addEventListener('updateend', function(e) {
+      if (!audio_buffer.updating && pending_audio_chunks.length > 0) {
+        audio_buffer.appendBuffer(pending_audio_chunks.shift());
+      }
+    });
+    // audio_buffer.addEventListener('updatestart', function(e) {});
+    audio_buffer.addEventListener('error', function(e) {
+      console.log('error', e);
+    });
+    audio_buffer.addEventListener('abort', function(e) {
+      console.log('abort', e);
+    });
+    // audio_buffer.addEventListener('update', function(e) {});
+  } else if (message.header.type == 'audio-init' || message.header.type == 'audio-chunk') {
     pending_audio_chunks.push(message.data);
-  } else if (message.header.type == 'audio-chunk') {
-    pending_audio_chunks.push(message.data);
-  } else if (message.header.type == 'video-init') {
-    if (!video_buffer) {
-      video_buffer = video_ms.addSourceBuffer(message.header.mimeCodec);
-      video_buffer.mode = 'sequence';
-      video_buffer.addEventListener('updateend', function(e) {
-        if (!video_buffer.updating && pending_video_chunks.length > 0) {
-          video_buffer.appendBuffer(pending_video_chunks.shift());
-        }
-      });
-      // video_buffer.addEventListener('updatestart', function(e) {});
-      video_buffer.addEventListener('error', function(e) {
-        console.log('error', e);
-      });
-      video_buffer.addEventListener('abort', function(e) {
-        console.log('abort', e);
-      });
-      // video_buffer.addEventListener('update', function(e) {});
-    }
-    pending_video_chunks.push(message.data);
-  } else if (message.header.type == 'video-chunk') {
+  } else if (message.header.type == 'video-init' || message.header.type == 'video-chunk') {
     pending_video_chunks.push(message.data);
   }
 
@@ -109,12 +104,15 @@ video_ms.addEventListener('sourceopen', function(e) {
 
   ws.onmessage = handle_message
 
+  const clientHello = JSON.stringify({
+    type: 'client-hello'
+  });
   try {
-    ws.send(JSON.stringify({type: 'client-hello'}));
+    ws.send(clientHello);
   } catch (e) {
     // hack since ws may not be open
     setTimeout(function() {
-      ws.send(JSON.stringify({type: 'client-hello'}));
+      ws.send(clientHello);
     }, 100);
   }
 
@@ -123,8 +121,7 @@ video_ms.addEventListener('sourceopen', function(e) {
   function get_av_sync_error() {
     return video.currentTime - audio.currentTime;
   }
-
-
+  
   function send_vbuf_info() {
     if (video_buffer.buffered.length > 0) {
       ws.send(JSON.stringify({

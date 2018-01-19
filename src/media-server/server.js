@@ -26,9 +26,35 @@ function create_frame(header, data) {
   return frame;
 }
 
+const VIDEO_SEGMENT_LEN = 180180;
+const AUDIO_SEGMENT_LEN = 432000;
+
+const MEDIA_DIR = path.join(__dirname, '/media')
+
+VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
+AUDIO_QUALITIES = ['128k', '64k', '32k'];
+
+// TODO: this should be less magical and come from current time
+const START_VIDEO_SEGMENT = 174;
+
+function send_channel_init(ws, audioOffset) {
+  var header = {
+    type: 'channel-init',
+    videoCodec: 'video/mp4; codecs="avc1.42E0FF"',
+    // this works, avc1.42E0FF works too 20 is AVC-level
+    audioCodec: 'audio/webm; codecs="opus"',
+    audioOffset: audioOffset
+  }
+  try {
+    ws.send(create_frame(header, ''))
+  } catch(e) {
+    console.log(e);
+  }
+}
+
 function send_video(ws, vq, initChunk, numChunks) {
   // send init segment
-  fs.readFile(path.join(__dirname, '/static/media', vq, 'init.mp4'),
+  fs.readFile(path.join(MEDIA_DIR, vq, 'init.mp4'),
     function(err, data) {
       if (err) {
         console.log(err);
@@ -36,17 +62,15 @@ function send_video(ws, vq, initChunk, numChunks) {
         try {
           var header = {
             type: 'video-init',
-            mimeCodec: 'video/mp4; codecs="avc1.42E020"', // <--- this works
-            // mimeCodec: 'video/mp4; codecs="avc1.42E020, avc1.42E01F"', // <--- this doesn't work
             quality: vq
           }
           ws.send(create_frame(header, data));
 
           // send media segments
           for (var i = initChunk; i < initChunk + numChunks; i++) {
+            var beginTime = i * VIDEO_SEGMENT_LEN;
             var data2 = fs.readFileSync(
-              path.join(__dirname, '/static/media', vq,
-                String(i * 180180) + '.m4s'))
+              path.join(MEDIA_DIR, vq, String(beginTime) + '.m4s'))
             var header = {
               type: 'video-chunk',
               quality: vq
@@ -61,7 +85,7 @@ function send_video(ws, vq, initChunk, numChunks) {
 }
 
 function send_audio(ws, aq, initChunk, numChunks) {
-  fs.readFile(path.join(__dirname, '/static/media', aq, 'init.webm'),
+  fs.readFile(path.join(MEDIA_DIR, aq, 'init.webm'),
     function(err, data) {
       if (err) {
         console.log(err);
@@ -69,14 +93,14 @@ function send_audio(ws, aq, initChunk, numChunks) {
         try {
           var header = {
             type: 'audio-init',
-            mimeCodec: 'audio/webm; codecs="opus"',
             quality: aq
           }
           ws.send(create_frame(header, data));
 
           for (var i = initChunk; i < initChunk + numChunks; i++) {
-            var data2 = fs.readFileSync(path.join(__dirname, '/static/media',
-              aq, String(i * 432000) + '.chk'));
+            var beginTime = i * AUDIO_SEGMENT_LEN;
+            var data2 = fs.readFileSync(path.join(MEDIA_DIR,
+              aq, String(beginTime) + '.chk'));
             var header = {
               type: 'audio-chunk',
               quality: aq
@@ -90,14 +114,12 @@ function send_audio(ws, aq, initChunk, numChunks) {
     });
 }
 
-VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
-AUDIO_QUALITIES = ['128k', '64k', '32k'];
-
 const ws_server = new WebSocket.Server({server});
 ws_server.on('connection', function(ws, req) {
   ws.binaryType = 'arraybuffer';
 
   var i = 0;
+  i = START_VIDEO_SEGMENT;
   function send_video_wrapper() {
     var vq = VIDEO_QUALITIES[i % VIDEO_QUALITIES.length];
     try {
@@ -109,6 +131,8 @@ ws_server.on('connection', function(ws, req) {
   }
 
   var j = 0;
+  j = Math.floor(START_VIDEO_SEGMENT * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
+  var audio_offset = - (START_VIDEO_SEGMENT * VIDEO_SEGMENT_LEN  - j * AUDIO_SEGMENT_LEN) / 100000;
   function send_audio_wrapper() {
     var aq = AUDIO_QUALITIES[j % AUDIO_QUALITIES.length];
     try {
@@ -123,6 +147,7 @@ ws_server.on('connection', function(ws, req) {
     var message = JSON.parse(data);
     console.log(message);
     if (message.type == 'client-hello') {
+      send_channel_init(ws, audio_offset);
       send_video_wrapper();
       send_audio_wrapper();
     } else if (message.type == 'client-vbuf') {
