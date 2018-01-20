@@ -35,7 +35,7 @@ VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
 AUDIO_QUALITIES = ['128k', '64k', '32k'];
 
 // TODO: this should be less magical and come from current time
-const START_VIDEO_SEGMENT = 174;
+const START_VIDEO_SEGMENT = 123;
 
 function send_channel_init(ws, audioOffset) {
   var header = {
@@ -118,16 +118,18 @@ const ws_server = new WebSocket.Server({server});
 ws_server.on('connection', function(ws, req) {
   ws.binaryType = 'arraybuffer';
 
+  var increment = 1;
+
   var i = 0;
   i = START_VIDEO_SEGMENT;
   function send_video_wrapper() {
     var vq = VIDEO_QUALITIES[i % VIDEO_QUALITIES.length];
     try {
-      send_video(ws, vq, i, 1);
+      send_video(ws, vq, i, increment);
     } catch (e) {
       console.log(e);
     }
-    i++;
+    i += increment;
   }
 
   var j = 0;
@@ -136,11 +138,11 @@ ws_server.on('connection', function(ws, req) {
   function send_audio_wrapper() {
     var aq = AUDIO_QUALITIES[j % AUDIO_QUALITIES.length];
     try {
-      send_audio(ws, aq, j, 1);
+      send_audio(ws, aq, j, increment);
     } catch (e) {
       console.log(e);
     }
-    j++;
+    j += increment;
   }
 
   ws.on('message', function(data) {

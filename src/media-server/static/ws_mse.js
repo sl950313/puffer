@@ -3,13 +3,11 @@ const ws = new WebSocket('ws://localhost:8080');
 ws.binaryType = 'arraybuffer';
 
 // media sources
-const video_ms = new MediaSource();
+const ms = new MediaSource();
 const video = document.getElementById('tv-player');
-video.src = window.URL.createObjectURL(video_ms);
-
-const audio_ms = new MediaSource();
+video.src = window.URL.createObjectURL(ms);
 const audio = document.getElementById('tv-audio');
-audio.src = window.URL.createObjectURL(audio_ms);
+audio.src = window.URL.createObjectURL(ms);
 
 var video_buffer;
 var pending_video_chunks = [];
@@ -30,7 +28,7 @@ function handle_message(e) {
   var message = parse_message(e.data);
   console.log(message.header.type, message.header.quality);
   if (message.header.type == 'channel-init') {
-    video_buffer = video_ms.addSourceBuffer(message.header.videoCodec);
+    video_buffer = ms.addSourceBuffer(message.header.videoCodec);
     video_buffer.mode = 'sequence';
     video_buffer.addEventListener('updateend', function(e) {
       if (!video_buffer.updating && pending_video_chunks.length > 0) {
@@ -46,7 +44,7 @@ function handle_message(e) {
     });
     // video_buffer.addEventListener('update', function(e) {});
 
-    audio_buffer = audio_ms.addSourceBuffer(message.header.audioCodec);
+    audio_buffer = ms.addSourceBuffer(message.header.audioCodec);
     audio_buffer.mode = 'sequence';
     audio_buffer.timestampOffset = message.header.audioOffset;
     audio_buffer.addEventListener('updateend', function(e) {
@@ -79,14 +77,6 @@ function handle_message(e) {
   }
 }
 
-video.onpause = function() {
-  audio.pause();
-}
-
-video.onplay = function() {
-  audio.play();
-}
-
 video.onclick = function () {
   if (video.paused) {
     video.play();
@@ -95,12 +85,8 @@ video.onclick = function () {
   }
 }
 
-video.onvolumechange = function () {
-  audio.volume = video.volume;
-}
-
-video_ms.addEventListener('sourceopen', function(e) {
-  console.log('sourceopen: ' + video_ms.readyState);
+ms.addEventListener('sourceopen', function(e) {
+  console.log('sourceopen: ' + ms.readyState);
 
   ws.onmessage = handle_message
 
@@ -115,19 +101,12 @@ video_ms.addEventListener('sourceopen', function(e) {
       ws.send(clientHello);
     }, 100);
   }
-
-  const AV_SYNC_TOL_SECS = 0.05;
-
-  function get_av_sync_error() {
-    return video.currentTime - audio.currentTime;
-  }
   
   function send_vbuf_info() {
     if (video_buffer.buffered.length > 0) {
       ws.send(JSON.stringify({
         type: 'client-vbuf',
-        bufferLength: video_buffer.buffered.end(0) - video.currentTime,
-        avSyncError: get_av_sync_error()
+        bufferLength: video_buffer.buffered.end(0) - video.currentTime
       }))
     }
     setTimeout(send_vbuf_info, 1000);
@@ -137,57 +116,27 @@ video_ms.addEventListener('sourceopen', function(e) {
     if (audio_buffer.buffered.length > 0) {
       ws.send(JSON.stringify({
         type: 'client-abuf',
-        bufferLength: audio_buffer.buffered.end(0) - audio.currentTime,
-        avSyncError: get_av_sync_error()
+        bufferLength: audio_buffer.buffered.end(0) - video.currentTime
       }))
     }
     setTimeout(send_abuf_info, 2000);
   }
 
-  function av_sync() {
-    // Somewhat kludgey way of fixing the sync problem
-    var av_sync_error = get_av_sync_error();
-    if (Math.abs(av_sync_error) > AV_SYNC_TOL_SECS) {
-      console.log('av-resync: err=' + av_sync_error);
-      if (av_sync_error < 0) {
-        video.currentTime = audio.currentTime;
-      } else {
-        audio.currentTime = video.currentTime;
-      }
-    }
-    setTimeout(av_sync, 1000);
-  }
-
   setTimeout(function() {
-    video.play();
-    audio.play();
     send_vbuf_info();
     send_abuf_info();
-    av_sync();
   }, 200);
 });
 
 // other media source event listeners for debugging
-video_ms.addEventListener('sourceended', function(e) {
-  console.log('sourceended: ' + video_ms.readyState);
+ms.addEventListener('sourceended', function(e) {
+  console.log('sourceended: ' + ms.readyState);
 });
 
-video_ms.addEventListener('sourceclose', function(e) {
-  console.log('sourceclose: ' + video_ms.readyState);
+ms.addEventListener('sourceclose', function(e) {
+  console.log('sourceclose: ' + ms.readyState);
 });
 
-video_ms.addEventListener('error', function(e) {
-  console.log('media source error: ' + video_ms.readyState);
-});
-
-audio_ms.addEventListener('sourceended', function(e) {
-  console.log('sourceended: ' + audio_ms.readyState);
-});
-
-audio_ms.addEventListener('sourceclose', function(e) {
-  console.log('sourceclose: ' + audio_ms.readyState);
-});
-
-audio_ms.addEventListener('error', function(e) {
-  console.log('media source error: ' + audio_ms.readyState);
+ms.addEventListener('error', function(e) {
+  console.log('media source error: ' + ms.readyState);
 });
