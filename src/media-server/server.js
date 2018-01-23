@@ -48,13 +48,13 @@ function get_newest_video_segment() {
   return Math.max.apply(null, available_segments);
 }
 
-function send_channel_init(ws, audioOffset) {
+function send_channel_init(ws, videoOffset) {
   var header = {
     type: 'channel-init',
     videoCodec: 'video/mp4; codecs="avc1.42E020"',
     // this works, avc1.42E0FF works on chrome but not firefox
     audioCodec: 'audio/webm; codecs="opus"',
-    audioOffset: audioOffset
+    videoOffset: videoOffset
   }
   try {
     ws.send(create_frame(header, ''))
@@ -183,11 +183,7 @@ function StreamingSession(ws) {
     
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
 
-    // Compute offset of the first audio segment w.r.t. the first video segment
-    var init_audio_offset = - (video_idx * VIDEO_SEGMENT_LEN - audio_idx
-      * AUDIO_SEGMENT_LEN) / 100000;
-
-    send_channel_init(ws, init_audio_offset);
+    send_channel_init(ws, - video_idx * VIDEO_SEGMENT_LEN / 90000);
   }
 
   this.send_video = function() {

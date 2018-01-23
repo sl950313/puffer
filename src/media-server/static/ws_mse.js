@@ -37,7 +37,7 @@ function WebSocketClient(ms, video, audio) {
     }
 
     vbuf = ms.addSourceBuffer(options.videoCodec);
-    vbuf.mode = 'sequence';
+    vbuf.timestampOffset = options.videoOffset;
     vbuf.addEventListener('updateend', function(e) {
       if (!vbuf.updating && pending_video_chunks.length > 0) {
         vbuf.appendBuffer(pending_video_chunks.shift());
@@ -51,8 +51,7 @@ function WebSocketClient(ms, video, audio) {
     });
 
     abuf = ms.addSourceBuffer(options.audioCodec);
-    abuf.mode = 'sequence';
-    abuf.timestampOffset = options.audioOffset;
+    abuf.timestampOffset = options.videoOffset;
     abuf.addEventListener('updateend', function(e) {
       if (!abuf.updating && pending_audio_chunks.length > 0) {
         abuf.appendBuffer(pending_audio_chunks.shift());
@@ -109,6 +108,7 @@ function WebSocketClient(ms, video, audio) {
   function send_vbuf_info() {
     var vbuf_len = 0;
     if (vbuf && vbuf.buffered.length > 0) {
+      console.log(vbuf.buffered.start(0));
       vbuf_len = vbuf.buffered.end(0) - video.currentTime;
     }
     if (ws) {
