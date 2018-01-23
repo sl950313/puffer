@@ -25,24 +25,6 @@ function WebSocketClient(ms, video, audio) {
     };
   };
 
-  function start_playback() {
-    var started_playing = false;
-    if (vbuf && vbuf.buffered.length > 0 && abuf && abuf.buffered.length > 0) {
-      if (abuf.buffered.start(0) < vbuf.buffered.end(0) ||
-          vbuf.buffered.start(0) < abuf.buffered.end(0)) {
-        // Set the initial start time so both audio and video have data
-        var start_time = Math.max(vbuf.buffered.start(0), abuf.buffered.start(0));
-        console.log('Starting playback at', start_time);
-        video.currentTime = start_time;
-        video.play();
-        started_playing = true;
-      }
-    }
-    if (!started_playing) {
-      setTimeout(start_playback, 50);
-    }
-  }
-
   function init_channel(options) {
     pending_video_chunks = [];
     pending_audio_chunks = [];
@@ -68,7 +50,7 @@ function WebSocketClient(ms, video, audio) {
     });
 
     abuf = ms.addSourceBuffer(options.audioCodec);
-    abuf.timestampOffset = options.videoOffset;
+    abuf.timestampOffset = options.audioOffset;
     abuf.addEventListener('updateend', function(e) {
       if (!abuf.updating && pending_audio_chunks.length > 0) {
         abuf.appendBuffer(pending_audio_chunks.shift());
@@ -80,8 +62,6 @@ function WebSocketClient(ms, video, audio) {
     abuf.addEventListener('abort', function(e) {
       console.log('abort', e);
     });
-
-    start_playback();
   }
 
   function handle_mesg(e) {
