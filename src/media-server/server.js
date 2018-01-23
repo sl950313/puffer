@@ -183,7 +183,7 @@ function StreamingSession(ws) {
     
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
 
-    send_channel_init(ws, - (video_idx + 1) * VIDEO_SEGMENT_LEN / 90000);
+    send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / 90000));
   }
 
   this.send_video = function() {
@@ -251,12 +251,11 @@ ws_server.on('connection', function(ws, req) {
       session.set_channel();
       session.send_video();
       session.send_audio();
-    } else if (message.type == 'client-vbuf') {
-      if (message.bufferLength < 10) {
+    } else if (message.type == 'client-buf') {
+      if (message.vlen < 10) {
         session.send_video();
       }
-    } else if (message.type == 'client-abuf') {
-      if (message.bufferLength < 10) {
+      if (message.alen < 10) {
         session.send_audio();
       }
     }
