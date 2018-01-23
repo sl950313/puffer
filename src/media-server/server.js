@@ -1,9 +1,10 @@
-if (process.argv.length != 3) {
-  console.log('Usage: node index.js <port-number>');
+if (process.argv.length != 4) {
+  console.log('Usage: node index.js <port-number> <video-dir>');
   process.exit(-1);
 }
 
 const port_num = Number(process.argv[2]);
+const video_dir = process.argv[3];
 
 const express = require('express');
 const http = require('http');
@@ -29,13 +30,19 @@ function create_frame(header, data) {
 const VIDEO_SEGMENT_LEN = 180180;
 const AUDIO_SEGMENT_LEN = 432000;
 
-const MEDIA_DIR = path.join(__dirname, '/media')
+const MEDIA_DIR = video_dir;
+const START_SEGMENT_OFFSET = 10;
 
-VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
-AUDIO_QUALITIES = ['128k', '64k', '32k'];
+VIDEO_QUALITIES = ['1280x720-23', '640x360-23'];
+AUDIO_QUALITIES = ['128k', '32k'];
 
-// TODO: this should be less magical and come from current time
-const START_VIDEO_SEGMENT = 123;
+function get_newest_video_segment() {
+  var video_dir = path.join(MEDIA_DIR, VIDEO_QUALITIES[0]);
+  var available_segments = fs.readdirSync(video_dir).filter(
+    file => file.endsWith('m4s')).map(
+      file => Number(file.split('.', 1)[0]) / VIDEO_SEGMENT_LEN);
+  return Math.max.apply(null, available_segments);
+}
 
 function send_channel_init(ws, audioOffset) {
   var header = {
@@ -120,8 +127,8 @@ ws_server.on('connection', function(ws, req) {
 
   var increment = 1;
 
-  var i = 0;
-  i = START_VIDEO_SEGMENT;
+  var i = get_newest_video_segment() - START_SEGMENT_OFFSET;
+  console.log('Starting from', i);
   function send_video_wrapper() {
     var vq = VIDEO_QUALITIES[i % VIDEO_QUALITIES.length];
     try {
@@ -133,8 +140,8 @@ ws_server.on('connection', function(ws, req) {
   }
 
   var j = 0;
-  j = Math.floor(START_VIDEO_SEGMENT * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
-  var audio_offset = - (START_VIDEO_SEGMENT * VIDEO_SEGMENT_LEN  - j * AUDIO_SEGMENT_LEN) / 100000;
+  j = Math.floor(i * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
+  var audio_offset = - (i * VIDEO_SEGMENT_LEN  - j * AUDIO_SEGMENT_LEN) / 100000;
   function send_audio_wrapper() {
     var aq = AUDIO_QUALITIES[j % AUDIO_QUALITIES.length];
     try {
