@@ -185,11 +185,11 @@ function StreamingSession(ws) {
     
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
 
-    // FIXME: inaccurate timestamps
-    audio_idx -= 1;
-    video_idx -= 1;
-
     send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / 90000));
+
+    // FIXME: inaccurate timestamps
+    audio_idx -= 2;
+    video_idx -= 3;
   }
 
   this.send_video = function() {
