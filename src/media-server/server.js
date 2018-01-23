@@ -54,7 +54,9 @@ function send_channel_init(ws, videoOffset) {
     videoCodec: 'video/mp4; codecs="avc1.42E020"',
     // this works, avc1.42E0FF works on chrome but not firefox
     audioCodec: 'audio/webm; codecs="opus"',
-    videoOffset: videoOffset
+    videoOffset: videoOffset,
+    audioOffset: videoOffset
+    // FIXME: should be the same as video offset if not for sync issue
   }
   try {
     ws.send(create_frame(header, ''))
@@ -182,6 +184,10 @@ function StreamingSession(ws) {
     console.log('Starting at video segment', video_idx);
     
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
+
+    // FIXME: inaccurate timestamps
+    audio_idx -= 1;
+    video_idx -= 1;
 
     send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / 90000));
   }
