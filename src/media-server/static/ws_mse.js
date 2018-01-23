@@ -14,8 +14,8 @@ function WebSocketClient(ms, video, audio) {
   var vbuf;
   var abuf;
 
-  var pending_video_chunks = [];
-  var pending_audio_chunks = [];
+  var pending_video_chunks;
+  var pending_audio_chunks;
 
   function parse_mesg(data) {
     var header_len = new DataView(data, 0, 4).getUint32();
@@ -27,6 +27,15 @@ function WebSocketClient(ms, video, audio) {
   };
 
   function init_channel(options) {
+    pending_video_chunks = [];
+    pending_audio_chunks = [];
+    if (vbuf) {
+      ms.removeSourceBuffer(vbuf);
+    }
+    if (abuf) {
+      ms.removeSourceBuffer(abuf);
+    }
+
     vbuf = ms.addSourceBuffer(options.videoCodec);
     vbuf.mode = 'sequence';
     vbuf.addEventListener('updateend', function(e) {
@@ -142,9 +151,19 @@ function WebSocketClient(ms, video, audio) {
     send_client_hello(ws);
   };
 
-  this.flush = function() {
-    vbuf.remove(0, Infinity);
-    abuf.remove(0, Infinity);
+  this.set_channel = function(channel) {
+    if (ws) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'client-channel',
+          channel: channel
+        }));
+      } catch (e) {
+        console.log(e);
+      }
+    } else {
+      alert('Error: client not connected');
+    }
   };
 
   // Start sending status updates to the server
@@ -167,6 +186,8 @@ const client = new WebSocketClient(ms, video, audio);
 ms.addEventListener('sourceopen', function(e) {
   console.log('sourceopen: ' + ms.readyState);
   client.connect();
+  // TODO: changing the sourcebuffers does not work yet
+  // setTimeout(function() { client.set_channel(''); }, 5000);
 });
 
 // other media source event listeners for debugging

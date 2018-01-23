@@ -170,18 +170,25 @@ function select_audio_quality(prev_aq) {
 
 function StreamingSession(ws) {
   this.ws = ws;
-
-  var video_idx = get_newest_video_segment() - START_SEGMENT_OFFSET;
-  console.log('Starting at video segment', video_idx);
   
-  var audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
+  var video_idx, audio_idx;
+  var prev_aq, prev_vq;
 
-  // Compute offset of the first audio segment w.r.t. the first video segment
-  this.init_audio_offset = - (video_idx * VIDEO_SEGMENT_LEN - audio_idx
-    * AUDIO_SEGMENT_LEN) / 100000;
-  
-  var prev_aq = undefined;
-  var prev_vq = undefined;
+  this.set_channel = function() {
+    prev_vq = undefined;
+    prev_aq = undefined;
+
+    video_idx = get_newest_video_segment() - START_SEGMENT_OFFSET;
+    console.log('Starting at video segment', video_idx);
+    
+    audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
+
+    // Compute offset of the first audio segment w.r.t. the first video segment
+    init_audio_offset = - (video_idx * VIDEO_SEGMENT_LEN - audio_idx
+      * AUDIO_SEGMENT_LEN) / 100000;
+
+    send_channel_init(ws, init_audio_offset);
+  }
 
   this.send_video = function() {
     var vq = select_video_quality(prev_vq);
@@ -243,8 +250,9 @@ ws_server.on('connection', function(ws, req) {
   ws.on('message', function(data) {
     var message = JSON.parse(data);
     console.log(message);
-    if (message.type == 'client-hello') {
-      send_channel_init(ws, session.init_audio_offset);
+    if (message.type == 'client-hello' || 
+        message.type == 'client-channel') {
+      session.set_channel();
       session.send_video();
       session.send_audio();
     } else if (message.type == 'client-vbuf') {
