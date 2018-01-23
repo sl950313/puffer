@@ -149,7 +149,7 @@ function send_audio_segment(ws, aq, audio_path) {
   });
 }
 
-const VQ_SWITCH_PROB = 0.3;
+const VQ_SWITCH_PROB = 0.5;
 const AQ_SWITCH_PROB = 0.3;
 
 function select_video_quality(prev_vq) {

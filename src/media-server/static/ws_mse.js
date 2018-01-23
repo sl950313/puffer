@@ -1,7 +1,3 @@
-// create websocket
-const ws = new WebSocket('ws://' + location.host);
-ws.binaryType = 'arraybuffer';
-
 // media sources
 const ms = new MediaSource();
 const video = document.getElementById('tv-player');
@@ -9,68 +5,153 @@ video.src = window.URL.createObjectURL(ms);
 const audio = document.getElementById('tv-audio');
 audio.src = window.URL.createObjectURL(ms);
 
-var video_buffer;
-var pending_video_chunks = [];
+const SEND_ABUF_INTERVAL = 2000; // 2s
+const SEND_VBUF_INTERVAL = 1000; // 1s
 
-var audio_buffer;
-var pending_audio_chunks = [];
+function WebSocketClient(ms, video, audio) {
+  var ws;
 
-function parse_message(data) {
-  var header_len = new DataView(data, 0, 4).getUint32();
-  return {
-    header: JSON.parse(new TextDecoder().decode(
-        data.slice(4, 4 + header_len))),
-    data: data.slice(4 + header_len)
+  var vbuf;
+  var abuf;
+
+  var pending_video_chunks = [];
+  var pending_audio_chunks = [];
+
+  function parse_mesg(data) {
+    var header_len = new DataView(data, 0, 4).getUint32();
+    return {
+      header: JSON.parse(new TextDecoder().decode(
+          data.slice(4, 4 + header_len))),
+      data: data.slice(4 + header_len)
+    };
   };
-}
 
-function handle_message(e) {
-  var message = parse_message(e.data);
-  console.log(message.header.type, message.header.quality);
-  if (message.header.type == 'channel-init') {
-    video_buffer = ms.addSourceBuffer(message.header.videoCodec);
-    video_buffer.mode = 'sequence';
-    video_buffer.addEventListener('updateend', function(e) {
-      if (!video_buffer.updating && pending_video_chunks.length > 0) {
-        video_buffer.appendBuffer(pending_video_chunks.shift());
+  function init_channel(options) {
+    vbuf = ms.addSourceBuffer(options.videoCodec);
+    vbuf.mode = 'sequence';
+    vbuf.addEventListener('updateend', function(e) {
+      if (!vbuf.updating && pending_video_chunks.length > 0) {
+        vbuf.appendBuffer(pending_video_chunks.shift());
       }
     });
-    video_buffer.addEventListener('error', function(e) {
+    vbuf.addEventListener('error', function(e) {
       console.log('error', e);
     });
-    video_buffer.addEventListener('abort', function(e) {
+    vbuf.addEventListener('abort', function(e) {
       console.log('abort', e);
     });
 
-    audio_buffer = ms.addSourceBuffer(message.header.audioCodec);
-    audio_buffer.mode = 'sequence';
-    audio_buffer.timestampOffset = message.header.audioOffset;
-    audio_buffer.addEventListener('updateend', function(e) {
-      if (!audio_buffer.updating && pending_audio_chunks.length > 0) {
-        audio_buffer.appendBuffer(pending_audio_chunks.shift());
+    abuf = ms.addSourceBuffer(options.audioCodec);
+    abuf.mode = 'sequence';
+    abuf.timestampOffset = options.audioOffset;
+    abuf.addEventListener('updateend', function(e) {
+      if (!abuf.updating && pending_audio_chunks.length > 0) {
+        abuf.appendBuffer(pending_audio_chunks.shift());
       }
     });
-    audio_buffer.addEventListener('error', function(e) {
+    abuf.addEventListener('error', function(e) {
       console.log('error', e);
     });
-    audio_buffer.addEventListener('abort', function(e) {
+    abuf.addEventListener('abort', function(e) {
       console.log('abort', e);
-    });
-  } else if (message.header.type == 'audio-init' || message.header.type == 'audio-chunk') {
-    pending_audio_chunks.push(message.data);
-  } else if (message.header.type == 'video-init' || message.header.type == 'video-chunk') {
-    pending_video_chunks.push(message.data);
+    });    
   }
 
-  if (video_buffer && !video_buffer.updating
-      && pending_video_chunks.length > 0) {
-    video_buffer.appendBuffer(pending_video_chunks.shift());
+  function handle_mesg(e) {
+    var message = parse_mesg(e.data);
+    if (message.header.type == 'channel-init') {
+      console.log(message.header.type);
+      init_channel(message.header);
+    } else if (message.header.type == 'audio-init' || 
+               message.header.type == 'audio-chunk') {
+      console.log(message.header.type, message.header.quality);
+      pending_audio_chunks.push(message.data);
+    } else if (message.header.type == 'video-init' || 
+               message.header.type == 'video-chunk') {
+      console.log(message.header.type, message.header.quality);
+      pending_video_chunks.push(message.data);
+    }
+
+    if (vbuf && !vbuf.updating
+        && pending_video_chunks.length > 0) {
+      vbuf.appendBuffer(pending_video_chunks.shift());
+    }
+
+    if (abuf && !abuf.updating
+        && pending_audio_chunks.length > 0) {
+      abuf.appendBuffer(pending_audio_chunks.shift());
+    }
   }
 
-  if (audio_buffer && !audio_buffer.updating
-      && pending_audio_chunks.length > 0) {
-    audio_buffer.appendBuffer(pending_audio_chunks.shift());
+  const client_hello = JSON.stringify({
+    type: 'client-hello'
+  });
+
+  function send_client_hello(ws) {
+    console.log('Sending client hello');
+    try {
+      ws.send(client_hello);
+    } catch (e) {
+      // Retry if the websocket is not ready
+      setTimeout(function() { send_client_hello(ws); }, 100);
+    }
   }
+
+  function send_vbuf_info() {
+    var vbuf_len = 0;
+    if (vbuf && vbuf.buffered.length > 0) {
+      vbuf_len = vbuf.buffered.end(0) - video.currentTime;
+    }
+    if (ws) {
+      console.log('Sending vbuf info');
+      try {
+        ws.send(JSON.stringify({
+          type: 'client-vbuf',
+          bufferLength: vbuf_len
+        }));
+      } catch (e) {
+        console.log('Failed to send vbuf info', e);
+      }
+    }
+    setTimeout(send_vbuf_info, SEND_ABUF_INTERVAL);
+  }
+
+  function send_abuf_info() {
+    var abuf_len = 0;
+    if (abuf && abuf.buffered.length > 0) {
+      abuf_len = abuf.buffered.end(0) - video.currentTime;
+    }
+    if (ws) {
+      console.log('Sending abuf info');
+      try {
+        ws.send(JSON.stringify({
+          type: 'client-abuf',
+          bufferLength: abuf_len
+        }));
+      } catch (e) {
+        console.log('Failed to send abuf info', e);
+      }
+    }
+    setTimeout(send_abuf_info, SEND_VBUF_INTERVAL);
+  }
+
+  this.connect = function() {
+    ws = new WebSocket('ws://' + location.host);
+    ws.binaryType = 'arraybuffer';
+    ws.onmessage = handle_mesg;
+    send_client_hello(ws);
+  };
+
+  this.flush = function() {
+    vbuf.remove(0, Infinity);
+    abuf.remove(0, Infinity);
+  };
+
+  // Start sending status updates to the server
+  setTimeout(function() {
+    send_vbuf_info();
+    send_abuf_info();
+  }, 1000);
 }
 
 video.onclick = function () {
@@ -81,47 +162,11 @@ video.onclick = function () {
   }
 }
 
+const client = new WebSocketClient(ms, video, audio);
+
 ms.addEventListener('sourceopen', function(e) {
   console.log('sourceopen: ' + ms.readyState);
-
-  ws.onmessage = handle_message
-
-  const client_hello = JSON.stringify({
-    type: 'client-hello'
-  });
-  function send_client_hello() {
-    try {
-      ws.send(client_hello);
-    } catch (e) {
-      setTimeout(function() { send_client_hello(); }, 100);
-    }
-  }
-  
-  function send_vbuf_info() {
-    if (video_buffer.buffered.length > 0) {
-      ws.send(JSON.stringify({
-        type: 'client-vbuf',
-        bufferLength: video_buffer.buffered.end(0) - video.currentTime
-      }))
-    }
-    setTimeout(send_vbuf_info, 1000);
-  }
-
-  function send_abuf_info() {
-    if (audio_buffer.buffered.length > 0) {
-      ws.send(JSON.stringify({
-        type: 'client-abuf',
-        bufferLength: audio_buffer.buffered.end(0) - video.currentTime
-      }))
-    }
-    setTimeout(send_abuf_info, 2000);
-  }
-
-  send_client_hello();
-  setTimeout(function() {
-    send_vbuf_info();
-    send_abuf_info();
-  }, 200);
+  client.connect();
 });
 
 // other media source event listeners for debugging
