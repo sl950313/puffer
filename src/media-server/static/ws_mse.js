@@ -1,5 +1,5 @@
 // create websocket
-const ws = new WebSocket('ws://localhost:8080');
+const ws = new WebSocket('ws://' + location.host);
 ws.binaryType = 'arraybuffer';
 
 // media sources
@@ -35,14 +35,12 @@ function handle_message(e) {
         video_buffer.appendBuffer(pending_video_chunks.shift());
       }
     });
-    // video_buffer.addEventListener('updatestart', function(e) {});
     video_buffer.addEventListener('error', function(e) {
       console.log('error', e);
     });
     video_buffer.addEventListener('abort', function(e) {
       console.log('abort', e);
     });
-    // video_buffer.addEventListener('update', function(e) {});
 
     audio_buffer = ms.addSourceBuffer(message.header.audioCodec);
     audio_buffer.mode = 'sequence';
@@ -52,14 +50,12 @@ function handle_message(e) {
         audio_buffer.appendBuffer(pending_audio_chunks.shift());
       }
     });
-    // audio_buffer.addEventListener('updatestart', function(e) {});
     audio_buffer.addEventListener('error', function(e) {
       console.log('error', e);
     });
     audio_buffer.addEventListener('abort', function(e) {
       console.log('abort', e);
     });
-    // audio_buffer.addEventListener('update', function(e) {});
   } else if (message.header.type == 'audio-init' || message.header.type == 'audio-chunk') {
     pending_audio_chunks.push(message.data);
   } else if (message.header.type == 'video-init' || message.header.type == 'video-chunk') {
@@ -90,16 +86,15 @@ ms.addEventListener('sourceopen', function(e) {
 
   ws.onmessage = handle_message
 
-  const clientHello = JSON.stringify({
+  const client_hello = JSON.stringify({
     type: 'client-hello'
   });
-  try {
-    ws.send(clientHello);
-  } catch (e) {
-    // hack since ws may not be open
-    setTimeout(function() {
-      ws.send(clientHello);
-    }, 100);
+  function send_client_hello() {
+    try {
+      ws.send(client_hello);
+    } catch (e) {
+      setTimeout(function() { send_client_hello(); }, 100);
+    }
   }
   
   function send_vbuf_info() {
@@ -122,6 +117,7 @@ ms.addEventListener('sourceopen', function(e) {
     setTimeout(send_abuf_info, 2000);
   }
 
+  send_client_hello();
   setTimeout(function() {
     send_vbuf_info();
     send_abuf_info();
