@@ -26,12 +26,19 @@ function WebSocketClient(ms, video, audio) {
   };
 
   function start_playback() {
+    var started_playing = false;
     if (vbuf && vbuf.buffered.length > 0 && abuf && abuf.buffered.length > 0) {
-      var start_time = Math.max(vbuf.buffered.start(0), abuf.buffered.start(0));
-      console.log('Starting playback at', start_time);
-      video.currentTime = start_time;
-      video.play();
-    } else {
+      if (abuf.buffered.start(0) < vbuf.buffered.end(0) ||
+          vbuf.buffered.start(0) < abuf.buffered.end(0)) {
+        // Set the initial start time so both audio and video have data
+        var start_time = Math.max(vbuf.buffered.start(0), abuf.buffered.start(0));
+        console.log('Starting playback at', start_time);
+        video.currentTime = start_time;
+        video.play();
+        started_playing = true;
+      }
+    }
+    if (!started_playing) {
       setTimeout(start_playback, 50);
     }
   }
