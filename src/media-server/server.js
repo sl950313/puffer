@@ -13,6 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const encoder = require('text-encoding');
 
+Array.prototype.randomElement = function () {
+    return this[Math.floor(Math.random() * this.length)]
+}
+
 const app = express();
 app.use(express.static(path.join(__dirname, '/static')));
 const server = http.createServer(app);
@@ -79,21 +83,27 @@ function send_video_init(ws, vq, cb) {
     });
 }
 
-function send_video_data(ws, vq, first_segment, num_segments) {
-  try {
-    for (var i = first_segment; i < first_segment + num_segments; i++) {
-      var begin_time = i * VIDEO_SEGMENT_LEN;
-      var data = fs.readFileSync(
-        path.join(MEDIA_DIR, vq, String(begin_time) + '.m4s'))
+function get_video_filepath(vq, idx) {
+  var begin_time = idx * VIDEO_SEGMENT_LEN;
+  return path.join(MEDIA_DIR, vq, String(begin_time) + '.m4s');
+}
+
+function send_video_segment(ws, vq, video_path) {
+  fs.readFile(video_path, function(err, data) {
+    if (err) {
+      console.log(err);
+    } else {
       var header = {
         type: 'video-chunk',
         quality: vq
       }
-      ws.send(create_frame(header, data));
+      try {
+        ws.send(create_frame(header, data));
+      } catch (e) {
+        console.log(e);
+      }
     }
-  } catch (e) {
-    console.log(e);
-  }
+  })
 }
 
 function send_audio_init(ws, aq, cb) {
@@ -116,20 +126,111 @@ function send_audio_init(ws, aq, cb) {
     });
 }
 
-function send_audio_data(ws, aq, start_segement, num_segments) {
-  try {
-    for (var i = start_segement; i < start_segement + num_segments; i++) {
-      var begin_time = i * AUDIO_SEGMENT_LEN;
-      var data = fs.readFileSync(path.join(MEDIA_DIR,
-        aq, String(begin_time) + '.chk'));
+function get_audio_filepath(aq, idx) {
+  var begin_time = idx * AUDIO_SEGMENT_LEN;
+  return path.join(MEDIA_DIR, aq, String(begin_time) + '.chk');
+}
+
+function send_audio_segment(ws, aq, audio_path) {
+  fs.readFile(audio_path, function(err, data) {
+    if (err) {
+      console.log(err);
+    } else {
       var header = {
         type: 'audio-chunk',
         quality: aq
       }
-      ws.send(create_frame(header, data));
+      try {
+        ws.send(create_frame(header, data));
+      } catch (e) {
+        console.log(e);
+      }
     }
-  } catch (e) {
-    console.log(e);
+  });
+}
+
+const VQ_SWITCH_PROB = 0.3;
+const AQ_SWITCH_PROB = 0.3;
+
+function select_video_quality(prev_vq) {
+  if (!prev_vq || Math.random() > VQ_SWITCH_PROB) {
+    return VIDEO_QUALITIES.randomElement();
+  } else {
+    return prev_vq;
+  }
+}
+
+function select_audio_quality(prev_aq) {
+  if (!prev_aq || Math.random() > AQ_SWITCH_PROB) {
+    return AUDIO_QUALITIES.randomElement();
+  } else {
+    return prev_aq;
+  }
+}
+
+function StreamingSession(ws) {
+  this.ws = ws;
+
+  var video_idx = get_newest_video_segment() - START_SEGMENT_OFFSET;
+  console.log('Starting at video segment', video_idx);
+  
+  var audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
+
+  // Compute offset of the first audio segment w.r.t. the first video segment
+  this.init_audio_offset = - (video_idx * VIDEO_SEGMENT_LEN - audio_idx
+    * AUDIO_SEGMENT_LEN) / 100000;
+  
+  var prev_aq = undefined;
+  var prev_vq = undefined;
+
+  this.send_video = function() {
+    var vq = select_video_quality(prev_vq);
+    var video_path = get_video_filepath(vq, video_idx);
+    fs.stat(video_path, function(err, stat) {
+      if (err == null) {
+        try {
+          var cb = function() { send_video_segment(ws, vq, video_path); };
+          if (prev_vq != vq) {
+            send_video_init(ws, vq, cb);
+          } else {
+            cb();
+          }
+        } catch (e) {
+          console.log(e);
+        }
+        video_idx += 1;
+        prev_vq = vq;     
+      } else if (err.code == 'ENOENT') {
+        console.log(video_path, 'not found')
+      } else {
+        console.log('Error stat:', video_path, err.code);
+      }
+    });
+  }
+
+  this.send_audio = function() {
+    var aq = select_audio_quality(prev_aq);
+    var audio_path = get_audio_filepath(aq, audio_idx);
+    fs.stat(audio_path, function(err, stat) {
+      if (err == null) {
+        try {
+          var cb = function() { send_audio_segment(ws, aq, audio_path); };
+          if (prev_aq != aq) {
+            send_audio_init(ws, aq, cb);
+          } else {
+            cb();
+          }
+        } catch (e) {
+          console.log(e);
+        }
+        audio_idx += 1;
+        prev_aq = aq;
+      } else if (err.code == 'ENOENT') {
+        console.log(audio_path, 'not found')
+      } else {
+        console.log('Error stat:', audio_path, err.code);
+      }
+    });
   }
 }
 
@@ -137,63 +238,22 @@ const ws_server = new WebSocket.Server({server});
 ws_server.on('connection', function(ws, req) {
   ws.binaryType = 'arraybuffer';
 
-  var increment = 1;
-
-  var i = get_newest_video_segment() - START_SEGMENT_OFFSET;
-  console.log('Starting from', i);
-  var prev_vq;
-  function send_video_wrapper() {
-    var vq = VIDEO_QUALITIES[i % VIDEO_QUALITIES.length];
-    try {
-      if (prev_vq != vq) {
-        send_video_init(ws, vq, function() {
-          send_video_data(ws, vq, i, increment);
-        });
-      } else {
-        send_video_data(ws, vq, i, increment);
-      }
-    } catch (e) {
-      console.log(e);
-    }
-    i += increment;
-    prev_vq = vq;
-  }
-
-  var j = 0;
-  j = Math.floor(i * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
-  var audio_offset = - (i * VIDEO_SEGMENT_LEN  - j * AUDIO_SEGMENT_LEN) / 100000;
-  var prev_aq;
-  function send_audio_wrapper() {
-    var aq = AUDIO_QUALITIES[j % AUDIO_QUALITIES.length];
-    try {
-      if (prev_aq != aq) {
-        send_audio_init(ws, aq, function() {
-          send_audio_data(ws, aq, j, increment);
-        })
-      } else {
-        send_audio_data(ws, aq, j, increment);
-      }
-    } catch (e) {
-      console.log(e);
-    }
-    j += increment;
-    prev_aq = aq;
-  }
+  var session = new StreamingSession(ws);
 
   ws.on('message', function(data) {
     var message = JSON.parse(data);
     console.log(message);
     if (message.type == 'client-hello') {
-      send_channel_init(ws, audio_offset);
-      send_video_wrapper();
-      send_audio_wrapper();
+      send_channel_init(ws, session.init_audio_offset);
+      session.send_video();
+      session.send_audio();
     } else if (message.type == 'client-vbuf') {
       if (message.bufferLength < 10) {
-        send_video_wrapper();
+        session.send_video();
       }
     } else if (message.type == 'client-abuf') {
       if (message.bufferLength < 10) {
-        send_audio_wrapper();
+        session.send_audio();
       }
     }
   });
