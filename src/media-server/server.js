@@ -59,8 +59,7 @@ function send_channel_init(ws, audioOffset) {
   }
 }
 
-function send_video(ws, vq, initChunk, numChunks) {
-  // send init segment
+function send_video_init(ws, vq, cb) {
   fs.readFile(path.join(MEDIA_DIR, vq, 'init.mp4'),
     function(err, data) {
       if (err) {
@@ -72,18 +71,7 @@ function send_video(ws, vq, initChunk, numChunks) {
             quality: vq
           }
           ws.send(create_frame(header, data));
-
-          // send media segments
-          for (var i = initChunk; i < initChunk + numChunks; i++) {
-            var beginTime = i * VIDEO_SEGMENT_LEN;
-            var data2 = fs.readFileSync(
-              path.join(MEDIA_DIR, vq, String(beginTime) + '.m4s'))
-            var header = {
-              type: 'video-chunk',
-              quality: vq
-            }
-            ws.send(create_frame(header, data2));
-          }
+          if (cb) cb();
         } catch (e) {
           console.log(e);
         }
@@ -91,7 +79,24 @@ function send_video(ws, vq, initChunk, numChunks) {
     });
 }
 
-function send_audio(ws, aq, initChunk, numChunks) {
+function send_video_data(ws, vq, first_segment, num_segments) {
+  try {
+    for (var i = first_segment; i < first_segment + num_segments; i++) {
+      var begin_time = i * VIDEO_SEGMENT_LEN;
+      var data = fs.readFileSync(
+        path.join(MEDIA_DIR, vq, String(begin_time) + '.m4s'))
+      var header = {
+        type: 'video-chunk',
+        quality: vq
+      }
+      ws.send(create_frame(header, data));
+    }
+  } catch (e) {
+    console.log(e);
+  }
+}
+
+function send_audio_init(ws, aq, cb) {
   fs.readFile(path.join(MEDIA_DIR, aq, 'init.webm'),
     function(err, data) {
       if (err) {
@@ -103,22 +108,29 @@ function send_audio(ws, aq, initChunk, numChunks) {
             quality: aq
           }
           ws.send(create_frame(header, data));
-
-          for (var i = initChunk; i < initChunk + numChunks; i++) {
-            var beginTime = i * AUDIO_SEGMENT_LEN;
-            var data2 = fs.readFileSync(path.join(MEDIA_DIR,
-              aq, String(beginTime) + '.chk'));
-            var header = {
-              type: 'audio-chunk',
-              quality: aq
-            }
-            ws.send(create_frame(header, data2));
-          }
+          if (cb) cb();
         } catch (e) {
           console.log(e);
         }
       }
     });
+}
+
+function send_audio_data(ws, aq, start_segement, num_segments) {
+  try {
+    for (var i = start_segement; i < start_segement + num_segments; i++) {
+      var begin_time = i * AUDIO_SEGMENT_LEN;
+      var data = fs.readFileSync(path.join(MEDIA_DIR,
+        aq, String(begin_time) + '.chk'));
+      var header = {
+        type: 'audio-chunk',
+        quality: aq
+      }
+      ws.send(create_frame(header, data));
+    }
+  } catch (e) {
+    console.log(e);
+  }
 }
 
 const ws_server = new WebSocket.Server({server});
@@ -129,27 +141,43 @@ ws_server.on('connection', function(ws, req) {
 
   var i = get_newest_video_segment() - START_SEGMENT_OFFSET;
   console.log('Starting from', i);
+  var prev_vq;
   function send_video_wrapper() {
     var vq = VIDEO_QUALITIES[i % VIDEO_QUALITIES.length];
     try {
-      send_video(ws, vq, i, increment);
+      if (prev_vq != vq) {
+        send_video_init(ws, vq, function() {
+          send_video_data(ws, vq, i, increment);
+        });
+      } else {
+        send_video_data(ws, vq, i, increment);
+      }
     } catch (e) {
       console.log(e);
     }
     i += increment;
+    prev_vq = vq;
   }
 
   var j = 0;
   j = Math.floor(i * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
   var audio_offset = - (i * VIDEO_SEGMENT_LEN  - j * AUDIO_SEGMENT_LEN) / 100000;
+  var prev_aq;
   function send_audio_wrapper() {
     var aq = AUDIO_QUALITIES[j % AUDIO_QUALITIES.length];
     try {
-      send_audio(ws, aq, j, increment);
+      if (prev_aq != aq) {
+        send_audio_init(ws, aq, function() {
+          send_audio_data(ws, aq, j, increment);
+        })
+      } else {
+        send_audio_data(ws, aq, j, increment);
+      }
     } catch (e) {
       console.log(e);
     }
     j += increment;
+    prev_aq = aq;
   }
 
   ws.on('message', function(data) {
