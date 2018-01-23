@@ -107,8 +107,9 @@ function WebSocketClient(ms, video, audio) {
 
   function send_vbuf_info() {
     var vbuf_len = 0;
+    var vbuf_start = 0;
     if (vbuf && vbuf.buffered.length > 0) {
-      console.log(vbuf.buffered.start(0));
+      console.log('vbuf:', vbuf.buffered.start(0), vbuf.buffered.end(0));
       vbuf_len = vbuf.buffered.end(0) - video.currentTime;
     }
     if (ws) {
@@ -128,6 +129,7 @@ function WebSocketClient(ms, video, audio) {
   function send_abuf_info() {
     var abuf_len = 0;
     if (abuf && abuf.buffered.length > 0) {
+      console.log('abuf:', abuf.buffered.start(0), abuf.buffered.end(0));
       abuf_len = abuf.buffered.end(0) - video.currentTime;
     }
     if (ws) {
