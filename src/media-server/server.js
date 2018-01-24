@@ -155,7 +155,7 @@ const VQ_SWITCH_PROB = 0.5;
 const AQ_SWITCH_PROB = 0.3;
 
 function select_video_quality(prev_vq) {
-  if (!prev_vq || Math.random() > VQ_SWITCH_PROB) {
+  if (!prev_vq || Math.random() < VQ_SWITCH_PROB) {
     return VIDEO_QUALITIES.randomElement();
   } else {
     return prev_vq;
@@ -163,7 +163,7 @@ function select_video_quality(prev_vq) {
 }
 
 function select_audio_quality(prev_aq) {
-  if (!prev_aq || Math.random() > AQ_SWITCH_PROB) {
+  if (!prev_aq || Math.random() < AQ_SWITCH_PROB) {
     return AUDIO_QUALITIES.randomElement();
   } else {
     return prev_aq;

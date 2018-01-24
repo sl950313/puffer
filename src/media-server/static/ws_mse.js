@@ -7,6 +7,12 @@ audio.src = window.URL.createObjectURL(ms);
 
 const SEND_BUF_INTERVAL = 1000; // 1s
 
+// If the video offset causes the start of the first chunk
+// to go negative, the first video segment may get dropped,
+// causing the video to not play.
+// This ensures that videoOffset - adjustment > 0
+const VIDEO_OFFSET_ADJUSTMENT = 0.05;
+
 function WebSocketClient(ms, video, audio) {
   var ws;
 
@@ -36,7 +42,7 @@ function WebSocketClient(ms, video, audio) {
     }
 
     vbuf = ms.addSourceBuffer(options.videoCodec);
-    vbuf.timestampOffset = options.videoOffset;
+    vbuf.timestampOffset = options.videoOffset + VIDEO_OFFSET_ADJUSTMENT;
     vbuf.addEventListener('updateend', function(e) {
       if (!vbuf.updating && pending_video_chunks.length > 0) {
         vbuf.appendBuffer(pending_video_chunks.shift());
@@ -50,7 +56,7 @@ function WebSocketClient(ms, video, audio) {
     });
 
     abuf = ms.addSourceBuffer(options.audioCodec);
-    abuf.timestampOffset = options.audioOffset;
+    abuf.timestampOffset = options.audioOffset + VIDEO_OFFSET_ADJUSTMENT;
     abuf.addEventListener('updateend', function(e) {
       if (!abuf.updating && pending_audio_chunks.length > 0) {
         abuf.appendBuffer(pending_audio_chunks.shift());
