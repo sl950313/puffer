@@ -190,7 +190,9 @@ function StreamingSession(ws) {
 
   this.send_video = function() {
     var vq = select_video_quality(prev_vq);
-    var video_path = get_video_filepath(vq, video_idx);
+    var video_idx_copy = video_idx;
+    var video_path = get_video_filepath(vq, video_idx_copy);
+    console.log('Sending video:', video_idx_copy);
     fs.stat(video_path, function(err, stat) {
       if (err == null) {
         try {
@@ -203,7 +205,9 @@ function StreamingSession(ws) {
         } catch (e) {
           console.log(e);
         }
-        video_idx += 1;
+        // Must do this to avoid a race where a segment can be
+        // skipped
+        video_idx = video_idx_copy + 1;
         prev_vq = vq;     
       } else if (err.code == 'ENOENT') {
         console.log(video_path, 'not found')
@@ -215,7 +219,9 @@ function StreamingSession(ws) {
 
   this.send_audio = function() {
     var aq = select_audio_quality(prev_aq);
-    var audio_path = get_audio_filepath(aq, audio_idx);
+    var audio_idx_copy = audio_idx;
+    var audio_path = get_audio_filepath(aq, audio_idx_copy);
+    console.log('Sending audio:', audio_idx);
     fs.stat(audio_path, function(err, stat) {
       if (err == null) {
         try {
@@ -228,7 +234,9 @@ function StreamingSession(ws) {
         } catch (e) {
           console.log(e);
         }
-        audio_idx += 1;
+        // Must do this to avoid a race where a segment can be
+        // skipped.
+        audio_idx = audio_idx_copy + 1;
         prev_aq = aq;
       } else if (err.code == 'ENOENT') {
         console.log(audio_path, 'not found')
