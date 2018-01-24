@@ -5,10 +5,6 @@ video.src = window.URL.createObjectURL(ms);
 const audio = document.getElementById('tv-audio');
 audio.src = window.URL.createObjectURL(ms);
 
-video.onseeking = function() {
-  video.play();
-};
-
 const SEND_BUF_INTERVAL = 1000; // 1s
 
 function WebSocketClient(ms, video, audio) {
@@ -29,6 +25,15 @@ function WebSocketClient(ms, video, audio) {
     };
   };
 
+  function start_playback() {
+    console.log('Starting playback');
+    if (video.readyState >= 3) {
+      video.play();
+    } else {
+      setTimeout(start_playback, 50);
+    }
+  }
+
   function seek_to_start() {
     var done_seeking = false;
     if (vbuf && vbuf.buffered.length > 0 && abuf && abuf.buffered.length > 0) {
@@ -36,9 +41,10 @@ function WebSocketClient(ms, video, audio) {
           vbuf.buffered.start(0) < abuf.buffered.end(0)) {
         // Set the initial start time so both audio and video have data
         var start_time = Math.max(vbuf.buffered.start(0), abuf.buffered.start(0));
-        console.log('Starting playback at', start_time);
+        console.log('Seeking to', start_time);
         video.currentTime = start_time;
         done_seeking = true;
+        start_playback();
       }
     }
     if (!done_seeking) {
