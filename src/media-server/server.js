@@ -14,7 +14,7 @@ const path = require('path');
 const encoder = require('text-encoding');
 
 Array.prototype.randomElement = function () {
-    return this[Math.floor(Math.random() * this.length)]
+  return this[Math.floor(Math.random() * this.length)]
 }
 
 const app = express();
