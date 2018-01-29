@@ -1,7 +1,8 @@
 // media sources
-// const ms = new MediaSource();
 const video = document.getElementById('tv-player');
 const audio = document.getElementById('tv-audio');
+
+const WS_OPEN = 1;
 
 const SEND_BUF_INTERVAL = 1000; // 1s
 
@@ -64,6 +65,7 @@ function AVSource(options) {
   });
 
   this.close = function() {
+    console.log('Closing AV source');
     pending_audio_chunks = [];
     pending_video_chunks = [];
     abuf = undefined;
@@ -98,7 +100,7 @@ function AVSource(options) {
     if (vbuf && vbuf.buffered.length > 0) {
       return vbuf.buffered.end(0) - video.currentTime;
     } else {
-      return 0;
+      return -1;
     }
   };
 
@@ -106,17 +108,19 @@ function AVSource(options) {
     if (abuf && abuf.buffered.length > 0) {
       return abuf.buffered.end(0) - video.currentTime;
     } else {
-      return 0;
+      return -1;
     }
   }
 
   this.update = function() {
     if (vbuf && !vbuf.updating
       && pending_video_chunks.length > 0) {
+      console.log('appending video');
       vbuf.appendBuffer(pending_video_chunks.shift());
     }
     if (abuf && !abuf.updating
       && pending_audio_chunks.length > 0) {
+      console.log('appending audio');
       abuf.appendBuffer(pending_audio_chunks.shift());
     }
   };
@@ -156,17 +160,14 @@ function WebSocketClient(video, audio) {
     av_source.update();
   }
 
-  const client_hello = JSON.stringify({
-    type: 'client-hello'
-  });
-
   function send_client_hello(ws) {
-    console.log('Sending client hello');
+    const client_hello = JSON.stringify({
+      type: 'client-hello'
+    });
     try {
       ws.send(client_hello);
     } catch (e) {
-      // Retry if the websocket is not ready
-      setTimeout(function() { send_client_hello(ws); }, 100);
+      console.log(e);
     }
   }
 
@@ -174,7 +175,7 @@ function WebSocketClient(video, audio) {
     if (av_source) {
       av_source.logBufferInfo();
     }
-    if (ws && av_source) {
+    if (ws && ws.readyState == WS_OPEN && av_source) {
       console.log('Sending vbuf info');
       try {
         ws.send(JSON.stringify({
@@ -194,7 +195,18 @@ function WebSocketClient(video, audio) {
     ws = new WebSocket('ws://' + location.host);
     ws.binaryType = 'arraybuffer';
     ws.onmessage = handle_mesg;
-    send_client_hello(ws);
+    ws.onopen = function (e) {
+      console.log('WebSocket open, sending client-hello');
+      send_client_hello(ws);
+    };
+    ws.onclose = function (e) {
+      console.log('WebSocket closed');
+      av_source.close();
+      alert('WebSocket closed. Refresh the page to reconnect');
+    };
+    ws.onerror = function (e) {
+      console.log('WebSocket error:', e);
+    };
   };
 
   this.set_channel = function(channel) {

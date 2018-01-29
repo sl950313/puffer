@@ -45,6 +45,9 @@ function get_newest_video_segment() {
   var available_segments = fs.readdirSync(video_dir).filter(
     file => file.endsWith('m4s')).map(
       file => Number(file.split('.', 1)[0]) / VIDEO_SEGMENT_LEN);
+  if (available_segments.length == 0) {
+    throw Error('No video segments available');
+  }
   return Math.max.apply(null, available_segments);
 }
 
@@ -186,6 +189,10 @@ function StreamingSession(ws) {
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
 
     send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / 90000));
+
+    /* FIXME: audio timestamps are off, send extra audio to ensure the
+     * browser has audio to play at the start */
+    audio_idx -= 3;
   }
 
   this.send_video = function() {
@@ -258,7 +265,13 @@ ws_server.on('connection', function(ws, req) {
     console.log(message);
     if (message.type == 'client-hello' || 
         message.type == 'client-channel') {
-      session.set_channel();
+      try {
+        session.set_channel();
+      } catch (e) {
+        console.log(e);
+        ws.close();
+        return;
+      }
       session.send_video();
       session.send_audio();
     } else if (message.type == 'client-buf') {
