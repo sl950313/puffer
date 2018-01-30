@@ -185,6 +185,14 @@ function StreamingSession(ws) {
   var video_idx, audio_idx;
   var prev_aq, prev_vq;
 
+  this.send_available_channels = function() {
+    var header = {
+      type: 'channel-list',
+      channels: CHANNELS
+    };
+    ws.send(create_frame(header, ''));
+  }
+
   this.set_channel = function(new_channel) {
     if (CHANNELS.indexOf(new_channel) == -1) {
       throw Error('channel does not exist');
@@ -274,25 +282,24 @@ ws_server.on('connection', function(ws, req) {
   ws.on('message', function(data) {
     var message = JSON.parse(data);
     console.log(message);
-    if (message.type == 'client-hello' || 
-        message.type == 'client-channel') {
-      try {
-        // TODO: set channel based on client message
-        session.set_channel(CHANNELS.randomElement());
-      } catch (e) {
-        console.log(e);
-        ws.close();
-        return;
-      }
-      session.send_video();
-      session.send_audio();
-    } else if (message.type == 'client-buf') {
-      if (message.vlen < 10) {
+    try {
+      if (message.type == 'client-hello') {
+        session.send_available_channels();
+      } else if (message.type == 'client-channel') {
+        session.set_channel(message.channel);
         session.send_video();
-      }
-      if (message.alen < 10) {
         session.send_audio();
+      } else if (message.type == 'client-buf') {
+        if (message.vlen < 10) {
+          session.send_video();
+        }
+        if (message.alen < 10) {
+          session.send_audio();
+        }
       }
+    } catch (e) {
+      console.log(e);
+      ws.close();
     }
   });
 
