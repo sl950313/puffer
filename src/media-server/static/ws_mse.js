@@ -1,7 +1,3 @@
-// media sources
-const video = document.getElementById('tv-player');
-const audio = document.getElementById('tv-audio');
-
 const WS_OPEN = 1;
 
 const SEND_BUF_INTERVAL = 1000; // 1s
@@ -12,7 +8,7 @@ const SEND_BUF_INTERVAL = 1000; // 1s
 // This ensures that videoOffset - adjustment > 0
 const VIDEO_OFFSET_ADJUSTMENT = 0.05;
 
-function AVSource(options) {
+function AVSource(video, audio, options) {
   // SourceBuffers for audio and video
   var vbuf, abuf;
 
@@ -135,9 +131,20 @@ function AVSource(options) {
   };
 };
 
-function WebSocketClient(video, audio) {
+function WebSocketClient(video, audio, channel_select) {
   var ws;
   var av_source;
+
+  var that = this;
+
+  function update_channel_select(channels) {
+    for (var i = 0; i < channels.length; i++) {
+      var option = document.createElement('option');
+      option.value = channels[i];
+      option.text = channels[i].toUpperCase();
+      channel_select.appendChild(option);
+    }
+  };
 
   function parse_mesg(data) {
     var header_len = new DataView(data, 0, 4).getUint32();
@@ -150,23 +157,30 @@ function WebSocketClient(video, audio) {
 
   function handle_mesg(e) {
     var message = parse_mesg(e.data);
-    if (message.header.type == 'channel-init') {
+    if (message.header.type == 'channel-list') {
+      console.log(message.header.type, message.header.channels);
+      update_channel_select(message.header.channels);
+      that.set_channel(message.header.channels[0]);
+    } else if (message.header.type == 'channel-init') {
       console.log(message.header.type);
       if (av_source) {
         // Close any existing source
         av_source.close();
       }
-      av_source = new AVSource(message.header);
-    } else if (message.header.type == 'audio-init' || 
+      av_source = new AVSource(video, audio, message.header);
+    } else if (message.header.type == 'audio-init' ||
                message.header.type == 'audio-chunk') {
       console.log(message.header.type, message.header.quality);
       av_source.appendAudio(message.data);
-    } else if (message.header.type == 'video-init' || 
+    } else if (message.header.type == 'video-init' ||
                message.header.type == 'video-chunk') {
       console.log(message.header.type, message.header.quality);
       av_source.appendVideo(message.data);
     }
-    av_source.update();
+
+    if (av_source) {
+      av_source.update();
+    }
   }
 
   function send_client_hello(ws) {
@@ -213,7 +227,7 @@ function WebSocketClient(video, audio) {
       if (av_source && av_source.isOpen()) {
         av_source.close();
       }
-      alert('WebSocket closed. Refresh the page to reconnect');
+      alert('WebSocket closed. Refresh the page to reconnect.');
     };
     ws.onerror = function (e) {
       console.log('WebSocket error:', e);
@@ -230,8 +244,6 @@ function WebSocketClient(video, audio) {
       } catch (e) {
         console.log(e);
       }
-    } else {
-      alert('Error: client not ready');
     }
   };
 
@@ -239,21 +251,21 @@ function WebSocketClient(video, audio) {
   setTimeout(function() { send_buf_info(); }, SEND_BUF_INTERVAL);
 }
 
-video.onclick = function () {
-  // Change channel demo
-  // TODO: add some more channels
-  client.set_channel('');
-}
-
 window.onload = function() {
+  const video = document.getElementById('tv-player');
+  const audio = document.getElementById('tv-audio');
+
   const mute_button = document.getElementById('mute-button');
   const full_screen_button = document.getElementById('full-screen-button');
-  const volume_bar = document.getElementById("volume-bar");
+  const volume_bar = document.getElementById('volume-bar');
+  const channel_select = document.getElementById('channel-select');
+
+  const client = new WebSocketClient(video, audio, channel_select);
 
   mute_button.onclick = function() {
     video.volume = 0;
     volume_bar.value = 0;
-  }
+  };
 
   full_screen_button.onclick = function() {
     if (video.requestFullscreen) {
@@ -263,12 +275,17 @@ window.onload = function() {
     } else if (video.webkitRequestFullscreen) {
       video.webkitRequestFullscreen();
     }
-  }
+  };
 
+  volume_bar.value = video.volume;
   volume_bar.onchange = function() {
     video.volume = volume_bar.value;
-  }
-}
+  };
 
-const client = new WebSocketClient(video, audio);
-client.connect();
+  channel_select.onchange = function() {
+    console.log('set channel:', channel_select.value);
+    client.set_channel(channel_select.value);
+  };
+
+  client.connect();
+}

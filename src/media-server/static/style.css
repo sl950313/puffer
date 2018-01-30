@@ -16,6 +16,7 @@
 
 #tv-controls {
   position: absolute;
+  height: 25px;
   bottom: 0;
   left: 0;
   right: 0;
@@ -48,7 +49,7 @@
 #volume-bar {
   -webkit-appearance: none;
   appearance: none;
-  width: 180px;
+  width: 100px;
   height: 10px;
   border-radius: 5px;
   background: #AAAAAA;
@@ -81,6 +82,27 @@
   border-radius: 50%;
   background: #000000;
   cursor: pointer;
+}
+
+#channel-select {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 60px;
+  height: 25px;
+  border-radius: 5px;
+  background: #AAAAAA;
+  outline: none;
+  text-align-last:center;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+  position: relative;
+  left: 30px;
+  top: -5px;
+  opacity: 0.8;
+}
+
+#channel-select:hover {
+  opacity: 1;
 }
 
 #full-screen-button {
