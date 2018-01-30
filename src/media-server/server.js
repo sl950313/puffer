@@ -40,8 +40,10 @@ const START_SEGMENT_OFFSET = 10;
 VIDEO_QUALITIES = ['1280x720-23', '640x360-23'];
 AUDIO_QUALITIES = ['128k', '32k'];
 
-function get_newest_video_segment() {
-  var video_dir = path.join(MEDIA_DIR, VIDEO_QUALITIES[0]);
+CHANNELS = ['pbs', 'nbc'];
+
+function get_newest_video_segment(channel) {
+  var video_dir = path.join(MEDIA_DIR, channel, VIDEO_QUALITIES[0]);
   var available_segments = fs.readdirSync(video_dir).filter(
     file => file.endsWith('m4s')).map(
       file => Number(file.split('.', 1)[0]) / VIDEO_SEGMENT_LEN);
@@ -68,8 +70,8 @@ function send_channel_init(ws, videoOffset) {
   }
 }
 
-function send_video_init(ws, vq, cb) {
-  fs.readFile(path.join(MEDIA_DIR, vq, 'init.mp4'),
+function send_video_init(ws, channel, vq, cb) {
+  fs.readFile(path.join(MEDIA_DIR, channel, vq, 'init.mp4'),
     function(err, data) {
       if (err) {
         console.log(err);
@@ -88,19 +90,20 @@ function send_video_init(ws, vq, cb) {
     });
 }
 
-function get_video_filepath(vq, idx) {
+function get_video_filepath(channel, vq, idx) {
   var begin_time = idx * VIDEO_SEGMENT_LEN;
-  return path.join(MEDIA_DIR, vq, String(begin_time) + '.m4s');
+  return path.join(MEDIA_DIR, channel, vq, String(begin_time) + '.m4s');
 }
 
-function send_video_segment(ws, vq, video_path) {
+function send_video_segment(ws, channel, vq, video_path) {
   fs.readFile(video_path, function(err, data) {
     if (err) {
       console.log(err);
     } else {
       var header = {
         type: 'video-chunk',
-        quality: vq
+        quality: vq,
+        channel: channel
       }
       try {
         ws.send(create_frame(header, data));
@@ -111,8 +114,8 @@ function send_video_segment(ws, vq, video_path) {
   })
 }
 
-function send_audio_init(ws, aq, cb) {
-  fs.readFile(path.join(MEDIA_DIR, aq, 'init.webm'),
+function send_audio_init(ws, channel, aq, cb) {
+  fs.readFile(path.join(MEDIA_DIR, channel, aq, 'init.webm'),
     function(err, data) {
       if (err) {
         console.log(err);
@@ -120,7 +123,8 @@ function send_audio_init(ws, aq, cb) {
         try {
           var header = {
             type: 'audio-init',
-            quality: aq
+            quality: aq,
+            channel: channel
           }
           ws.send(create_frame(header, data));
           if (cb) cb();
@@ -131,19 +135,20 @@ function send_audio_init(ws, aq, cb) {
     });
 }
 
-function get_audio_filepath(aq, idx) {
+function get_audio_filepath(channel, aq, idx) {
   var begin_time = idx * AUDIO_SEGMENT_LEN;
-  return path.join(MEDIA_DIR, aq, String(begin_time) + '.chk');
+  return path.join(MEDIA_DIR, channel, aq, String(begin_time) + '.chk');
 }
 
-function send_audio_segment(ws, aq, audio_path) {
+function send_audio_segment(ws, channel, aq, audio_path) {
   fs.readFile(audio_path, function(err, data) {
     if (err) {
       console.log(err);
     } else {
       var header = {
         type: 'audio-chunk',
-        quality: aq
+        quality: aq,
+        channel: channel
       }
       try {
         ws.send(create_frame(header, data));
@@ -176,14 +181,20 @@ function select_audio_quality(prev_aq) {
 function StreamingSession(ws) {
   this.ws = ws;
   
+  var channel;
   var video_idx, audio_idx;
   var prev_aq, prev_vq;
 
-  this.set_channel = function() {
+  this.set_channel = function(new_channel) {
+    if (CHANNELS.indexOf(new_channel) == -1) {
+      throw Error('channel does not exist');
+    }
+    channel = new_channel;
+
     prev_vq = undefined;
     prev_aq = undefined;
 
-    video_idx = get_newest_video_segment() - START_SEGMENT_OFFSET;
+    video_idx = get_newest_video_segment(channel) - START_SEGMENT_OFFSET;
     console.log('Starting at video segment', video_idx);
     
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
@@ -198,14 +209,14 @@ function StreamingSession(ws) {
   this.send_video = function() {
     var vq = select_video_quality(prev_vq);
     var video_idx_copy = video_idx;
-    var video_path = get_video_filepath(vq, video_idx_copy);
+    var video_path = get_video_filepath(channel, vq, video_idx_copy);
     console.log('Sending video:', video_idx_copy);
     fs.stat(video_path, function(err, stat) {
       if (err == null) {
         try {
-          var cb = function() { send_video_segment(ws, vq, video_path); };
+          var cb = function() { send_video_segment(ws, channel, vq, video_path); };
           if (prev_vq != vq) {
-            send_video_init(ws, vq, cb);
+            send_video_init(ws, channel, vq, cb);
           } else {
             cb();
           }
@@ -227,14 +238,14 @@ function StreamingSession(ws) {
   this.send_audio = function() {
     var aq = select_audio_quality(prev_aq);
     var audio_idx_copy = audio_idx;
-    var audio_path = get_audio_filepath(aq, audio_idx_copy);
+    var audio_path = get_audio_filepath(channel, aq, audio_idx_copy);
     console.log('Sending audio:', audio_idx);
     fs.stat(audio_path, function(err, stat) {
       if (err == null) {
         try {
-          var cb = function() { send_audio_segment(ws, aq, audio_path); };
+          var cb = function() { send_audio_segment(ws, channel, aq, audio_path); };
           if (prev_aq != aq) {
-            send_audio_init(ws, aq, cb);
+            send_audio_init(ws, channel, aq, cb);
           } else {
             cb();
           }
@@ -266,7 +277,8 @@ ws_server.on('connection', function(ws, req) {
     if (message.type == 'client-hello' || 
         message.type == 'client-channel') {
       try {
-        session.set_channel();
+        // TODO: set channel based on client message
+        session.set_channel(CHANNELS.randomElement());
       } catch (e) {
         console.log(e);
         ws.close();

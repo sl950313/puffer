@@ -32,20 +32,24 @@ function AVSource(options) {
     vbuf.timestampOffset = options.videoOffset + VIDEO_OFFSET_ADJUSTMENT;
     vbuf.addEventListener('updateend', that.update);
     vbuf.addEventListener('error', function(e) {
-      console.log('error', e);
+      console.log('vbuf error:', e);
+      that.close();
     });
     vbuf.addEventListener('abort', function(e) {
-      console.log('abort', e);
+      console.log('vbuf abort:', e);
+      that.close();
     });
 
     abuf = ms.addSourceBuffer(options.audioCodec);
     abuf.timestampOffset = options.audioOffset + VIDEO_OFFSET_ADJUSTMENT;
     abuf.addEventListener('updateend', that.update);
     abuf.addEventListener('error', function(e) {
-      console.log('error', e);
+      console.log('abuf error:', e);
+      that.close();
     });
     abuf.addEventListener('abort', function(e) {
-      console.log('abort', e);
+      console.log('abuf abort:', e);
+      that.close();
     });
   }
 
@@ -62,7 +66,12 @@ function AVSource(options) {
   });
   ms.addEventListener('error', function(e) {
     console.log('media source error: ' + ms.readyState);
+    that.close();
   });
+
+  this.isOpen = function() {
+    return abuf != undefined && vbuf != undefined;
+  }
 
   this.close = function() {
     console.log('Closing AV source');
@@ -172,10 +181,10 @@ function WebSocketClient(video, audio) {
   }
 
   function send_buf_info() {
-    if (av_source) {
+    if (av_source && av_source.isOpen()) {
       av_source.logBufferInfo();
     }
-    if (ws && ws.readyState == WS_OPEN && av_source) {
+    if (ws && ws.readyState == WS_OPEN && av_source && av_source.isOpen()) {
       console.log('Sending vbuf info');
       try {
         ws.send(JSON.stringify({
@@ -210,7 +219,7 @@ function WebSocketClient(video, audio) {
   };
 
   this.set_channel = function(channel) {
-    if (ws) {
+    if (ws && ws.readyState == WS_OPEN) {
       try {
         ws.send(JSON.stringify({
           type: 'client-channel',
@@ -220,7 +229,7 @@ function WebSocketClient(video, audio) {
         console.log(e);
       }
     } else {
-      alert('Error: client not connected');
+      alert('Error: client not ready');
     }
   };
 
@@ -230,6 +239,7 @@ function WebSocketClient(video, audio) {
 
 video.onclick = function () {
   // Change channel demo
+  // TODO: add some more channels
   client.set_channel('');
 }
 
