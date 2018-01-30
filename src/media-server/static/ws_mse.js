@@ -210,7 +210,9 @@ function WebSocketClient(video, audio) {
     };
     ws.onclose = function (e) {
       console.log('WebSocket closed');
-      av_source.close();
+      if (av_source && av_source.isOpen()) {
+        av_source.close();
+      }
       alert('WebSocket closed. Refresh the page to reconnect');
     };
     ws.onerror = function (e) {
@@ -241,6 +243,31 @@ video.onclick = function () {
   // Change channel demo
   // TODO: add some more channels
   client.set_channel('');
+}
+
+window.onload = function() {
+  const mute_button = document.getElementById('mute-button');
+  const full_screen_button = document.getElementById('full-screen-button');
+  const volume_bar = document.getElementById("volume-bar");
+
+  mute_button.onclick = function() {
+    video.volume = 0;
+    volume_bar.value = 0;
+  }
+
+  full_screen_button.onclick = function() {
+    if (video.requestFullscreen) {
+      video.requestFullscreen();
+    } else if (video.mozRequestFullScreen) {
+      video.mozRequestFullScreen();
+    } else if (video.webkitRequestFullscreen) {
+      video.webkitRequestFullscreen();
+    }
+  }
+
+  volume_bar.onchange = function() {
+    video.volume = volume_bar.value;
+  }
 }
 
 const client = new WebSocketClient(video, audio);
