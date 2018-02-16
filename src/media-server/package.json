@@ -11,6 +11,7 @@
   "dependencies": {
     "express": "^4.16.2",
     "ws": "^4.0.0",
-    "text-encoding": "^0.6.4"
+    "text-encoding": "^0.6.4",
+    "argparse": "^1.0.10"
   }
 }

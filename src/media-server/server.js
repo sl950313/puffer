@@ -1,10 +1,3 @@
-if (process.argv.length != 4) {
-  console.log('Usage: node index.js <port-number> <video-dir>');
-  process.exit(-1);
-}
-
-const port_num = Number(process.argv[2]);
-const video_dir = process.argv[3];
 
 const express = require('express');
 const http = require('http');
@@ -12,10 +5,73 @@ const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
 const encoder = require('text-encoding');
+const argparse = require('argparse')
 
 Array.prototype.randomElement = function () {
   return this[Math.floor(Math.random() * this.length)]
 }
+
+function get_args() {
+  var parser = new argparse.ArgumentParser({
+    version: '0.0.1',
+    addHelp:true,
+    description: 'Run the nodejs test server'
+  });
+  parser.addArgument(
+    [ 'media_dir' ],
+    {
+      help: 'Directory containing channels'
+    }
+  );
+  parser.addArgument(
+    [ '-p', '--port' ],
+    {
+      dest: 'port',
+      defaultValue: 8080,
+      type: Number,
+      help: 'Port number'
+    }
+  );
+  parser.addArgument(
+    [ '-i', '--start-idx' ],
+    {
+      dest: 'start_idx',
+      type: Number,
+      help: 'Start index of the video'
+    }
+  );
+  parser.addArgument(
+    [ '-c', '--channels' ],
+    {
+      dest: 'channels',
+      defaultValue: [ 'nbc' ],
+      nargs: '+',
+      help: 'List of available channels'
+    }
+  )
+  var args = parser.parseArgs();
+  console.log(args);
+  return args;
+}
+
+const ARGS = get_args();
+const PORT = ARGS.port;
+
+const VIDEO_SEGMENT_LEN = 180180;
+const AUDIO_SEGMENT_LEN = 432000;
+
+const MEDIA_DIR = ARGS.media_dir;
+if (!fs.existsSync(MEDIA_DIR)) {
+  throw Error(MEDIA_DIR + ' does not exist');
+}
+
+const START_SEGMENT_IDX = ARGS.start_idx;
+const START_SEGMENT_OFFSET = 10;
+
+const CHANNELS = ARGS.channels
+
+const VIDEO_QUALITIES = ['1280x720-23', '640x360-23'];
+const AUDIO_QUALITIES = ['128k', '32k'];
 
 const app = express();
 app.use(express.static(path.join(__dirname, '/static')));
@@ -30,17 +86,6 @@ function create_frame(header, data) {
   new Uint8Array(frame, 4 + header_enc.length).set(data);
   return frame;
 }
-
-const VIDEO_SEGMENT_LEN = 180180;
-const AUDIO_SEGMENT_LEN = 432000;
-
-const MEDIA_DIR = video_dir;
-const START_SEGMENT_OFFSET = 10;
-
-VIDEO_QUALITIES = ['1280x720-23', '640x360-23'];
-AUDIO_QUALITIES = ['128k', '32k'];
-
-CHANNELS = ['pbs', 'nbc'];
 
 function get_newest_video_segment(channel) {
   var video_dir = path.join(MEDIA_DIR, channel, VIDEO_QUALITIES[0]);
@@ -180,7 +225,7 @@ function select_audio_quality(prev_aq) {
 
 function StreamingSession(ws) {
   this.ws = ws;
-  
+
   var channel;
   var video_idx, audio_idx;
   var prev_aq, prev_vq;
@@ -202,16 +247,22 @@ function StreamingSession(ws) {
     prev_vq = undefined;
     prev_aq = undefined;
 
-    video_idx = get_newest_video_segment(channel) - START_SEGMENT_OFFSET;
+    if (START_SEGMENT_IDX == -1) {
+      video_idx = get_newest_video_segment(channel) - START_SEGMENT_OFFSET;
+    } else {
+      video_idx = 0;
+    }
     console.log('Starting at video segment', video_idx);
-    
+
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
 
     send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / 90000));
 
     /* FIXME: audio timestamps are off, send extra audio to ensure the
      * browser has audio to play at the start */
-    audio_idx -= 3;
+    if (START_SEGMENT_IDX == -1) {
+      audio_idx -= 3;
+    }
   }
 
   this.send_video = function() {
@@ -234,7 +285,7 @@ function StreamingSession(ws) {
         // Must do this to avoid a race where a segment can be
         // skipped
         video_idx = video_idx_copy + 1;
-        prev_vq = vq;     
+        prev_vq = vq;
       } else if (err.code == 'ENOENT') {
         console.log(video_path, 'not found')
       } else {
@@ -289,7 +340,8 @@ ws_server.on('connection', function(ws, req) {
         session.set_channel(message.channel);
         session.send_video();
         session.send_audio();
-      } else if (message.type == 'client-buf') {
+      } else if (message.type == 'client-info') {
+        console.log(message);
         if (message.vlen < 10) {
           session.send_video();
         }
@@ -316,6 +368,6 @@ app.get('/', function(req, res) {
   res.sendFile('index.html');
 });
 
-server.listen(port_num, function() {
+server.listen(PORT, function() {
   console.log('Listening on %d', server.address().port);
 });
