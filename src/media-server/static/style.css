@@ -1,5 +1,7 @@
 #tv-container {
+  width: 95%;
   position: relative;
+  margin: 0 auto;
 }
 
 #tv-player {

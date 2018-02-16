@@ -1,12 +1,14 @@
 const WS_OPEN = 1;
 
-const SEND_BUF_INTERVAL = 1000; // 1s
+const SEND_INFO_INTERVAL = 1000; // 1s
 
 // If the video offset causes the start of the first chunk
 // to go negative, the first video segment may get dropped,
 // causing the video to not play.
 // This ensures that videoOffset - adjustment > 0
 const VIDEO_OFFSET_ADJUSTMENT = 0.05;
+
+const DEBUG = false;
 
 function AVSource(video, audio, options) {
   // SourceBuffers for audio and video
@@ -90,13 +92,15 @@ function AVSource(video, audio, options) {
       for (var i = 0; i < vbuf.buffered.length; i++) {
         // There should only be one range if the server is
         // sending segments in order
-        console.log('vbuf range:', vbuf.buffered.start(i), '-', vbuf.buffered.end(i));
+        console.log('video range:',
+                    vbuf.buffered.start(i), '-', vbuf.buffered.end(i));
       }
     }
     if (abuf) {
       for (var i = 0; i < abuf.buffered.length; i++) {
         // Same comment as above
-        console.log('abuf range:', abuf.buffered.start(i), '-', abuf.buffered.end(i));
+        console.log('audio range:',
+                    abuf.buffered.start(i), '-', abuf.buffered.end(i));
       }
     }
   }
@@ -135,6 +139,15 @@ function WebSocketClient(video, audio, channel_select) {
   var ws;
   var av_source;
 
+  // Statistics
+  var init_time = new Date();
+  var video_chunks_received = 0;
+  var video_bytes_received = 0;
+  var current_video_quality = null;
+  var audio_chunks_received = 0;
+  var audio_bytes_received = 0;
+  var current_audio_quality = null;
+
   var that = this;
 
   function update_channel_select(channels) {
@@ -161,6 +174,7 @@ function WebSocketClient(video, audio, channel_select) {
       console.log(message.header.type, message.header.channels);
       update_channel_select(message.header.channels);
       that.set_channel(message.header.channels[0]);
+
     } else if (message.header.type == 'channel-init') {
       console.log(message.header.type);
       if (av_source) {
@@ -168,14 +182,29 @@ function WebSocketClient(video, audio, channel_select) {
         av_source.close();
       }
       av_source = new AVSource(video, audio, message.header);
-    } else if (message.header.type == 'audio-init' ||
-               message.header.type == 'audio-chunk') {
+
+    } else if (message.header.type == 'audio-init') {
       console.log(message.header.type, message.header.quality);
+      current_audio_quality = message.header.quality;
       av_source.appendAudio(message.data);
-    } else if (message.header.type == 'video-init' ||
-               message.header.type == 'video-chunk') {
+
+    } else if (message.header.type == 'audio-chunk') {
+      audio_chunks_received += 1;
+      audio_bytes_received += message.data.byteLength;
+      console.log(message.header.type);
+      av_source.appendAudio(message.data);
+
+    } else if (message.header.type == 'video-init') {
+      current_video_quality = message.header.quality;
       console.log(message.header.type, message.header.quality);
       av_source.appendVideo(message.data);
+
+    } else if (message.header.type == 'video-chunk') {
+      video_chunks_received += 1;
+      video_bytes_received += message.data.byteLength;
+      console.log(message.header.type);
+      av_source.appendVideo(message.data);
+      console.log(message.data)
     }
 
     if (av_source) {
@@ -194,24 +223,45 @@ function WebSocketClient(video, audio, channel_select) {
     }
   }
 
-  function send_buf_info() {
-    if (av_source && av_source.isOpen()) {
+  function clientStats() {
+    return {
+      initTime: init_time,
+      video: {
+        chunks: video_chunks_received,
+        bytes: video_bytes_received,
+        currentQuality: current_video_quality
+      },
+      audio: {
+        chunks: audio_chunks_received,
+        bytes: audio_bytes_received,
+        currentQuality: current_audio_quality
+      }
+    }
+  }
+
+  function send_client_info() {
+    if (DEBUG && av_source && av_source.isOpen()) {
       av_source.logBufferInfo();
     }
     if (ws && ws.readyState == WS_OPEN && av_source && av_source.isOpen()) {
       console.log('Sending vbuf info');
       try {
         ws.send(JSON.stringify({
-          type: 'client-buf',
+          type: 'client-info',
           vlen: av_source.getVideoBufferLen(),
           alen: av_source.getAudioBufferLen(),
-          readyState: video.readyState, // audioState does not contain info
+          clientStats: clientStats(),
+          playerStats: {
+            width: video.width,
+            height: video.height,
+            readyState: video.readyState, // audioState does not contain info
+          }
         }));
       } catch (e) {
-        console.log('Failed to send avbuf info', e);
+        console.log('Failed to send client info', e);
       }
     }
-    setTimeout(send_buf_info, SEND_BUF_INTERVAL);
+    setTimeout(send_client_info, SEND_INFO_INTERVAL);
   }
 
   this.connect = function() {
@@ -248,7 +298,7 @@ function WebSocketClient(video, audio, channel_select) {
   };
 
   // Start sending status updates to the server
-  setTimeout(function() { send_buf_info(); }, SEND_BUF_INTERVAL);
+  setTimeout(function() { send_client_info(); }, SEND_INFO_INTERVAL);
 }
 
 window.onload = function() {
