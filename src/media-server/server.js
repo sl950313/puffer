@@ -48,7 +48,7 @@ function get_args() {
       nargs: '+',
       help: 'List of available channels'
     }
-  )
+  );
   var args = parser.parseArgs();
   console.log(args);
   return args;
@@ -70,8 +70,10 @@ const START_SEGMENT_OFFSET = 10;
 
 const CHANNELS = ARGS.channels
 
-const VIDEO_QUALITIES = ['1280x720-23', '640x360-23'];
-const AUDIO_QUALITIES = ['128k', '32k'];
+const VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
+const AUDIO_QUALITIES = ['128k', '64k', '32k'];
+
+const MAX_BUFFER_LEN = 30;
 
 const app = express();
 app.use(express.static(path.join(__dirname, '/static')));
@@ -140,18 +142,13 @@ function get_video_filepath(channel, vq, idx) {
   return path.join(MEDIA_DIR, channel, vq, String(begin_time) + '.m4s');
 }
 
-function send_video_segment(ws, channel, vq, video_path) {
+function send_video_segment(ws, video_path) {
   fs.readFile(video_path, function(err, data) {
     if (err) {
       console.log(err);
     } else {
-      var header = {
-        type: 'video-chunk',
-        quality: vq,
-        channel: channel
-      }
       try {
-        ws.send(create_frame(header, data));
+        ws.send(create_frame({ type: 'video-chunk' }, data));
       } catch (e) {
         console.log(e);
       }
@@ -185,18 +182,13 @@ function get_audio_filepath(channel, aq, idx) {
   return path.join(MEDIA_DIR, channel, aq, String(begin_time) + '.chk');
 }
 
-function send_audio_segment(ws, channel, aq, audio_path) {
+function send_audio_segment(ws, audio_path) {
   fs.readFile(audio_path, function(err, data) {
     if (err) {
       console.log(err);
     } else {
-      var header = {
-        type: 'audio-chunk',
-        quality: aq,
-        channel: channel
-      }
       try {
-        ws.send(create_frame(header, data));
+        ws.send(create_frame({ type: 'audio-chunk' }, data));
       } catch (e) {
         console.log(e);
       }
@@ -204,23 +196,31 @@ function send_audio_segment(ws, channel, aq, audio_path) {
   });
 }
 
-const VQ_SWITCH_PROB = 0.5;
-const AQ_SWITCH_PROB = 0.3;
+RESERVOIR_LEN = 4;
+CUSHION_LEN = 8;
 
-function select_video_quality(prev_vq) {
-  if (!prev_vq || Math.random() < VQ_SWITCH_PROB) {
-    return VIDEO_QUALITIES.randomElement();
+function select_video_quality(client_info, channel, idx) {
+  var chunk_sizes = VIDEO_QUALITIES.map(
+    vq => get_video_filepath(channel, vq, idx)).map(
+    file => fs.statSync(file).size)
+
+  var vq;
+  if (client_info.videoBufferLen <= RESERVOIR_LEN) {
+    vq = VIDEO_QUALITIES[2];
+  } else if (client_info.videoBufferLen >= CUSHION_LEN) {
+    vq = VIDEO_QUALITIES[0];
   } else {
-    return prev_vq;
+    vq = VIDEO_QUALITIES[1];
   }
+  return vq;
 }
 
-function select_audio_quality(prev_aq) {
-  if (!prev_aq || Math.random() < AQ_SWITCH_PROB) {
-    return AUDIO_QUALITIES.randomElement();
-  } else {
-    return prev_aq;
-  }
+function select_audio_quality(client_info, channel, idx) {
+  var chunk_sizes = AUDIO_QUALITIES.map(
+    vq => get_audio_filepath(channel, vq, idx)).map(
+    file => fs.statSync(file).size)
+
+  return AUDIO_QUALITIES[0];
 }
 
 function StreamingSession(ws) {
@@ -228,7 +228,7 @@ function StreamingSession(ws) {
 
   var channel;
   var video_idx, audio_idx;
-  var prev_aq, prev_vq;
+  var curr_aq, curr_vq;
 
   this.send_available_channels = function() {
     var header = {
@@ -236,7 +236,7 @@ function StreamingSession(ws) {
       channels: CHANNELS
     };
     ws.send(create_frame(header, ''));
-  }
+  };
 
   this.set_channel = function(new_channel) {
     if (CHANNELS.indexOf(new_channel) == -1) {
@@ -244,8 +244,8 @@ function StreamingSession(ws) {
     }
     channel = new_channel;
 
-    prev_vq = undefined;
-    prev_aq = undefined;
+    curr_vq = undefined;
+    curr_aq = undefined;
 
     if (START_SEGMENT_IDX == -1) {
       video_idx = get_newest_video_segment(channel) - START_SEGMENT_OFFSET;
@@ -263,65 +263,51 @@ function StreamingSession(ws) {
     if (START_SEGMENT_IDX == -1) {
       audio_idx -= 3;
     }
-  }
+  };
 
-  this.send_video = function() {
-    var vq = select_video_quality(prev_vq);
-    var video_idx_copy = video_idx;
-    var video_path = get_video_filepath(channel, vq, video_idx_copy);
-    console.log('Sending video:', video_idx_copy);
-    fs.stat(video_path, function(err, stat) {
-      if (err == null) {
-        try {
-          var cb = function() { send_video_segment(ws, channel, vq, video_path); };
-          if (prev_vq != vq) {
-            send_video_init(ws, channel, vq, cb);
-          } else {
-            cb();
-          }
-        } catch (e) {
-          console.log(e);
-        }
-        // Must do this to avoid a race where a segment can be
-        // skipped
-        video_idx = video_idx_copy + 1;
-        prev_vq = vq;
-      } else if (err.code == 'ENOENT') {
-        console.log(video_path, 'not found')
+  this.send_video = function(client_info) {
+    var vq;
+    try {
+      vq = select_video_quality(client_info, channel, video_idx);
+    } catch (e) {
+      console.log('Video check not ready', e);
+      return;
+    }
+    var video_path = get_video_filepath(channel, vq, video_idx);
+
+    console.log('Sending video:', video_idx);
+    try {
+      var cb = function() { send_video_segment(ws, video_path); };
+      if (curr_vq != vq) {
+        send_video_init(ws, channel, vq, cb);
       } else {
-        console.log('Error stat:', video_path, err.code);
+        cb();
       }
-    });
-  }
+    } catch (e) {
+      console.log(e);
+    }
+    video_idx += 1;
+    curr_vq = vq;
+  };
 
-  this.send_audio = function() {
-    var aq = select_audio_quality(prev_aq);
-    var audio_idx_copy = audio_idx;
-    var audio_path = get_audio_filepath(channel, aq, audio_idx_copy);
+  this.send_audio = function(client_info) {
+    var aq = select_audio_quality(client_info, channel, audio_idx);
+    var audio_path = get_audio_filepath(channel, aq, audio_idx);
+
     console.log('Sending audio:', audio_idx);
-    fs.stat(audio_path, function(err, stat) {
-      if (err == null) {
-        try {
-          var cb = function() { send_audio_segment(ws, channel, aq, audio_path); };
-          if (prev_aq != aq) {
-            send_audio_init(ws, channel, aq, cb);
-          } else {
-            cb();
-          }
-        } catch (e) {
-          console.log(e);
-        }
-        // Must do this to avoid a race where a segment can be
-        // skipped.
-        audio_idx = audio_idx_copy + 1;
-        prev_aq = aq;
-      } else if (err.code == 'ENOENT') {
-        console.log(audio_path, 'not found')
+    try {
+      var cb = function() { send_audio_segment(ws, audio_path); };
+      if (curr_aq != aq) {
+        send_audio_init(ws, channel, aq, cb);
       } else {
-        console.log('Error stat:', audio_path, err.code);
+        cb();
       }
-    });
-  }
+    } catch (e) {
+      console.log(e);
+    }
+    audio_idx += 1;
+    curr_aq = aq;
+  };
 }
 
 const ws_server = new WebSocket.Server({server});
@@ -338,15 +324,15 @@ ws_server.on('connection', function(ws, req) {
         session.send_available_channels();
       } else if (message.type == 'client-channel') {
         session.set_channel(message.channel);
-        session.send_video();
-        session.send_audio();
+        session.send_video(VIDEO_QUALITIES[0]);
+        session.send_audio(AUDIO_QUALITIES[0]);
       } else if (message.type == 'client-info') {
         console.log(message);
-        if (message.vlen < 10) {
-          session.send_video();
+        if (message.videoBufferLen < MAX_BUFFER_LEN) {
+          session.send_video(message);
         }
-        if (message.alen < 10) {
-          session.send_audio();
+        if (message.audioBufferLen < MAX_BUFFER_LEN) {
+          session.send_audio(message);
         }
       }
     } catch (e) {

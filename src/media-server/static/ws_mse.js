@@ -49,7 +49,7 @@ function AVSource(video, audio, options) {
       console.log('abuf abort:', e);
       that.close();
     });
-  }
+  };
 
   ms.addEventListener('sourceopen', function(e) {
     console.log('sourceopen: ' + ms.readyState);
@@ -81,11 +81,11 @@ function AVSource(video, audio, options) {
 
   this.appendVideo = function(data) {
     pending_video_chunks.push(data);
-  }
+  };
 
   this.appendAudio = function(data) {
     pending_audio_chunks.push(data);
-  }
+  };
 
   this.logBufferInfo = function() {
     if (vbuf) {
@@ -103,7 +103,7 @@ function AVSource(video, audio, options) {
                     abuf.buffered.start(i), '-', abuf.buffered.end(i));
       }
     }
-  }
+  };
 
   this.getVideoBufferLen = function() {
     if (vbuf && vbuf.buffered.length > 0) {
@@ -119,7 +119,7 @@ function AVSource(video, audio, options) {
     } else {
       return -1;
     }
-  }
+  };
 
   this.update = function() {
     if (vbuf && !vbuf.updating
@@ -204,13 +204,12 @@ function WebSocketClient(video, audio, channel_select) {
       video_bytes_received += message.data.byteLength;
       console.log(message.header.type);
       av_source.appendVideo(message.data);
-      console.log(message.data)
     }
 
     if (av_source) {
       av_source.update();
     }
-  }
+  };
 
   function send_client_hello(ws) {
     const client_hello = JSON.stringify({
@@ -221,7 +220,7 @@ function WebSocketClient(video, audio, channel_select) {
     } catch (e) {
       console.log(e);
     }
-  }
+  };
 
   function clientStats() {
     return {
@@ -237,7 +236,7 @@ function WebSocketClient(video, audio, channel_select) {
         currentQuality: current_audio_quality
       }
     }
-  }
+  };
 
   function send_client_info() {
     if (DEBUG && av_source && av_source.isOpen()) {
@@ -248,8 +247,8 @@ function WebSocketClient(video, audio, channel_select) {
       try {
         ws.send(JSON.stringify({
           type: 'client-info',
-          vlen: av_source.getVideoBufferLen(),
-          alen: av_source.getAudioBufferLen(),
+          videoBufferLen: av_source.getVideoBufferLen(),
+          audioBufferLen: av_source.getAudioBufferLen(),
           clientStats: clientStats(),
           playerStats: {
             width: video.width,
@@ -262,7 +261,7 @@ function WebSocketClient(video, audio, channel_select) {
       }
     }
     setTimeout(send_client_info, SEND_INFO_INTERVAL);
-  }
+  };
 
   this.connect = function() {
     ws = new WebSocket('ws://' + location.host);
@@ -338,4 +337,4 @@ window.onload = function() {
   };
 
   client.connect();
-}
+};
