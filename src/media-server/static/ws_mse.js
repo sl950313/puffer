@@ -10,6 +10,11 @@ const VIDEO_OFFSET_ADJUSTMENT = 0.05;
 
 const DEBUG = false;
 
+const HTML_MEDIA_READY_STATES = [
+  'HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA',
+  'HAVE_ENOUGH_DATA'
+];
+
 function AVSource(video, audio, options) {
   // SourceBuffers for audio and video
   var vbuf, abuf;
@@ -221,7 +226,7 @@ function WebSocketClient(video, audio, channel_select) {
     }
   };
 
-  function clientStats() {
+  function get_client_stats() {
     return {
       initTime: init_time,
       video: {
@@ -248,11 +253,12 @@ function WebSocketClient(video, audio, channel_select) {
           trigger: trigger,
           videoBufferLen: av_source.getVideoBufferLen(),
           audioBufferLen: av_source.getAudioBufferLen(),
-          clientStats: clientStats(),
+          clientStats: get_client_stats(),
           playerStats: {
             width: video.width,
             height: video.height,
             readyState: video.readyState, // audioState does not contain info
+            readyStateMsg: HTML_MEDIA_READY_STATES[video.readyState],
           }
         }));
       } catch (e) {

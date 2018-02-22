@@ -259,7 +259,7 @@ function StreamingSession(ws) {
     curr_vq = undefined;
     curr_aq = undefined;
 
-    if (!START_SEGMENT_IDX) {
+    if (START_SEGMENT_IDX == null) {
       video_idx = get_newest_video_segment(channel) - START_SEGMENT_OFFSET;
     } else {
       video_idx = START_SEGMENT_IDX;
@@ -272,7 +272,7 @@ function StreamingSession(ws) {
 
     /* FIXME: audio timestamps are off, send extra audio to ensure the
      * browser has audio to play at the start */
-    if (!START_SEGMENT_IDX) {
+    if (START_SEGMENT_IDX == null) {
       audio_idx -= 3;
     }
   };
