@@ -124,12 +124,10 @@ function AVSource(video, audio, options) {
   this.update = function() {
     if (vbuf && !vbuf.updating
       && pending_video_chunks.length > 0) {
-      console.log('appending video');
       vbuf.appendBuffer(pending_video_chunks.shift());
     }
     if (abuf && !abuf.updating
       && pending_audio_chunks.length > 0) {
-      console.log('appending audio');
       abuf.appendBuffer(pending_audio_chunks.shift());
     }
   };
@@ -186,23 +184,24 @@ function WebSocketClient(video, audio, channel_select) {
     } else if (message.header.type == 'audio-init') {
       console.log(message.header.type, message.header.quality);
       current_audio_quality = message.header.quality;
+      console.log('received', message.header.type);
       av_source.appendAudio(message.data);
 
     } else if (message.header.type == 'audio-chunk') {
       audio_chunks_received += 1;
       audio_bytes_received += message.data.byteLength;
-      console.log(message.header.type);
+      console.log('received', message.header.type);
       av_source.appendAudio(message.data);
 
     } else if (message.header.type == 'video-init') {
       current_video_quality = message.header.quality;
-      console.log(message.header.type, message.header.quality);
+      console.log('received', message.header.type, message.header.quality);
       av_source.appendVideo(message.data);
 
     } else if (message.header.type == 'video-chunk') {
       video_chunks_received += 1;
       video_bytes_received += message.data.byteLength;
-      console.log(message.header.type);
+      console.log('received', message.header.type);
       av_source.appendVideo(message.data);
     }
 
@@ -238,15 +237,15 @@ function WebSocketClient(video, audio, channel_select) {
     }
   };
 
-  function send_client_info() {
+  function send_client_info(trigger) {
     if (DEBUG && av_source && av_source.isOpen()) {
       av_source.logBufferInfo();
     }
     if (ws && ws.readyState == WS_OPEN && av_source && av_source.isOpen()) {
-      console.log('Sending vbuf info');
       try {
         ws.send(JSON.stringify({
           type: 'client-info',
+          trigger: trigger,
           videoBufferLen: av_source.getVideoBufferLen(),
           audioBufferLen: av_source.getAudioBufferLen(),
           clientStats: clientStats(),
@@ -260,7 +259,6 @@ function WebSocketClient(video, audio, channel_select) {
         console.log('Failed to send client info', e);
       }
     }
-    setTimeout(send_client_info, SEND_INFO_INTERVAL);
   };
 
   this.connect = function() {
@@ -296,8 +294,22 @@ function WebSocketClient(video, audio, channel_select) {
     }
   };
 
+  video.oncanplay = function() {
+    console.log('canplay');
+    send_client_info('canplay');
+  };
+
+  video.onwaiting = function() {
+    console.log('rebuffer');
+    send_client_info('rebuffer');
+  };
+
   // Start sending status updates to the server
-  setTimeout(function() { send_client_info(); }, SEND_INFO_INTERVAL);
+  function timer_helper() {
+    send_client_info('timer');
+    setTimeout(timer_helper, SEND_INFO_INTERVAL);
+  }
+  setTimeout(timer_helper, SEND_INFO_INTERVAL);
 }
 
 window.onload = function() {

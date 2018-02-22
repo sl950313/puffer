@@ -49,6 +49,16 @@ function get_args() {
       help: 'List of available channels'
     }
   );
+  parser.addArgument(
+    [ '--timescale' ],
+    {
+      dest: 'timescale',
+      type: Number,
+      defaultValue: [ 90000, 180180, 432000 ],
+      nargs: 3,
+      help: 'Timescale, Video Length, Audio Length'
+    }
+  );
   var args = parser.parseArgs();
   console.log(args);
   return args;
@@ -57,8 +67,9 @@ function get_args() {
 const ARGS = get_args();
 const PORT = ARGS.port;
 
-const VIDEO_SEGMENT_LEN = 180180;
-const AUDIO_SEGMENT_LEN = 432000;
+const GLOBAL_TIMESCALE = ARGS.timescale[0];
+const VIDEO_SEGMENT_LEN = ARGS.timescale[1];
+const AUDIO_SEGMENT_LEN = ARGS.timescale[2];
 
 const MEDIA_DIR = ARGS.media_dir;
 if (!fs.existsSync(MEDIA_DIR)) {
@@ -205,10 +216,11 @@ function select_video_quality(client_info, channel, idx) {
     file => fs.statSync(file).size)
 
   var vq;
-  if (client_info.videoBufferLen <= RESERVOIR_LEN) {
-    vq = VIDEO_QUALITIES[2];
-  } else if (client_info.videoBufferLen >= CUSHION_LEN) {
+  if (client_info.videoBufferLen == undefined ||
+      client_info.videoBufferLen >= CUSHION_LEN) {
     vq = VIDEO_QUALITIES[0];
+  } else if (client_info.videoBufferLen <= RESERVOIR_LEN) {
+    vq = VIDEO_QUALITIES[2];
   } else {
     vq = VIDEO_QUALITIES[1];
   }
@@ -247,20 +259,20 @@ function StreamingSession(ws) {
     curr_vq = undefined;
     curr_aq = undefined;
 
-    if (START_SEGMENT_IDX == -1) {
+    if (!START_SEGMENT_IDX) {
       video_idx = get_newest_video_segment(channel) - START_SEGMENT_OFFSET;
     } else {
-      video_idx = 0;
+      video_idx = START_SEGMENT_IDX;
     }
     console.log('Starting at video segment', video_idx);
 
     audio_idx = Math.floor(video_idx * VIDEO_SEGMENT_LEN / AUDIO_SEGMENT_LEN);
 
-    send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / 90000));
+    send_channel_init(ws, - (video_idx * VIDEO_SEGMENT_LEN / GLOBAL_TIMESCALE));
 
     /* FIXME: audio timestamps are off, send extra audio to ensure the
      * browser has audio to play at the start */
-    if (START_SEGMENT_IDX == -1) {
+    if (!START_SEGMENT_IDX) {
       audio_idx -= 3;
     }
   };
@@ -270,8 +282,11 @@ function StreamingSession(ws) {
     try {
       vq = select_video_quality(client_info, channel, video_idx);
     } catch (e) {
-      console.log('Video check not ready', e);
-      return;
+      if (e.code == 'ENOENT') {
+        console.log('Video not ready:', video_idx);
+        return;
+      }
+      throw e;
     }
     var video_path = get_video_filepath(channel, vq, video_idx);
 
@@ -291,7 +306,16 @@ function StreamingSession(ws) {
   };
 
   this.send_audio = function(client_info) {
-    var aq = select_audio_quality(client_info, channel, audio_idx);
+    var aq;
+    try {
+      aq = select_audio_quality(client_info, channel, audio_idx);
+    } catch(e) {
+      if (e.code == 'ENOENT') {
+        console.log('Audio not ready:', audio_idx);
+        return;
+      }
+      throw e;
+    }
     var audio_path = get_audio_filepath(channel, aq, audio_idx);
 
     console.log('Sending audio:', audio_idx);
@@ -324,8 +348,8 @@ ws_server.on('connection', function(ws, req) {
         session.send_available_channels();
       } else if (message.type == 'client-channel') {
         session.set_channel(message.channel);
-        session.send_video(VIDEO_QUALITIES[0]);
-        session.send_audio(AUDIO_QUALITIES[0]);
+        session.send_video(message);
+        session.send_audio(message);
       } else if (message.type == 'client-info') {
         console.log(message);
         if (message.videoBufferLen < MAX_BUFFER_LEN) {
