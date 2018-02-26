@@ -81,8 +81,33 @@ const START_SEGMENT_OFFSET = 10;
 
 const CHANNELS = ARGS.channels
 
-const VIDEO_QUALITIES = ['1280x720-23', '854x480-23', '640x360-23'];
-const AUDIO_QUALITIES = ['128k', '64k', '32k'];
+function get_video_qualities(channels) {
+  vqs = {};
+  channels.forEach(function (channel) {
+    var channel_dir = path.join(MEDIA_DIR, channel);
+    vqs[channel] = fs.readdirSync(channel_dir).filter(
+      entry => entry.match(/^\d+x\d+-\d+$/)
+    );
+  });
+  return vqs;
+};
+
+function get_audio_qualities(channels) {
+  aqs = {};
+  channels.forEach(function (channel) {
+    var channel_dir = path.join(MEDIA_DIR, channel);
+    aqs[channel] = fs.readdirSync(channel_dir).filter(
+      entry => entry.match(/^\d+k$/)
+    );
+  });
+  return aqs;
+};
+
+const VIDEO_QUALITIES = get_video_qualities(CHANNELS);
+const AUDIO_QUALITIES = get_audio_qualities(CHANNELS);
+
+console.log('Video:', VIDEO_QUALITIES);
+console.log('Audio:', AUDIO_QUALITIES);
 
 const MAX_BUFFER_LEN = 30;
 
@@ -101,7 +126,7 @@ function create_frame(header, data) {
 }
 
 function get_newest_video_segment(channel) {
-  var video_dir = path.join(MEDIA_DIR, channel, VIDEO_QUALITIES[0]);
+  var video_dir = path.join(MEDIA_DIR, channel, VIDEO_QUALITIES[channel][0]);
   var available_segments = fs.readdirSync(video_dir).filter(
     file => file.endsWith('m4s')).map(
       file => Number(file.split('.', 1)[0]) / VIDEO_SEGMENT_LEN);
@@ -114,8 +139,8 @@ function get_newest_video_segment(channel) {
 function send_channel_init(ws, videoOffset) {
   var header = {
     type: 'channel-init',
-    videoCodec: 'video/mp4; codecs="avc1.42E020"',
-    // this works, avc1.42E0FF works on chrome but not firefox
+    videoCodec: 'video/mp4; codecs="avc1.42E0FF"',
+    // this works, avc1.42E0FF works on chrome but not firefox ("avc1.42E020")
     audioCodec: 'audio/webm; codecs="opus"',
     videoOffset: videoOffset,
     audioOffset: videoOffset
@@ -207,32 +232,58 @@ function send_audio_segment(ws, audio_path) {
   });
 }
 
-RESERVOIR_LEN = 4;
-CUSHION_LEN = 8;
+RESERVOIR_LEN = 4.0;
+CUSHION_LEN = 15.0;
+
+function index_of_min(arr) {
+  return arr.reduce(
+    (i_min, x, i) => x < arr[i_min] ? i : i_min, 0
+  );
+};
+
+function index_of_max(arr) {
+  return arr.reduce(
+    (i_max, x, i) => x > arr[i_max] ? i : i_max, 0
+  );
+};
+
+function index_of_nth(arr, n) {
+  var x = arr.slice(0).sort()[n];
+  return arr.indexOf(x);
+};
 
 function select_video_quality(client_info, channel, idx) {
-  var chunk_sizes = VIDEO_QUALITIES.map(
-    vq => get_video_filepath(channel, vq, idx)).map(
-    file => fs.statSync(file).size)
+  var chunk_sizes = VIDEO_QUALITIES[channel].map(
+    vq => get_video_filepath(channel, vq, idx)
+  ).map(
+    file => fs.statSync(file).size
+  );
 
-  var vq;
-  if (client_info.videoBufferLen == undefined ||
-      client_info.videoBufferLen >= CUSHION_LEN) {
-    vq = VIDEO_QUALITIES[0];
-  } else if (client_info.videoBufferLen <= RESERVOIR_LEN) {
-    vq = VIDEO_QUALITIES[2];
+  if (client_info.videoBufferLen == undefined) {
+    return VIDEO_QUALITIES[channel][index_of_min(chunk_sizes)];
   } else {
-    vq = VIDEO_QUALITIES[1];
+    var vq;
+    if (client_info.videoBufferLen >= CUSHION_LEN) {
+      vq = VIDEO_QUALITIES[channel][index_of_max(chunk_sizes)];
+    } else if (client_info.videoBufferLen <= RESERVOIR_LEN) {
+      vq = VIDEO_QUALITIES[channel][index_of_min(chunk_sizes)];
+    } else {
+      var n = Math.floor(
+        (client_info.videoBufferLen - RESERVOIR_LEN) /
+        (CUSHION_LEN - RESERVOIR_LEN) * VIDEO_QUALITIES[channel].length
+      );
+      vq = VIDEO_QUALITIES[channel][index_of_nth(chunk_sizes, n)];
+    }
+    return vq;
   }
-  return vq;
 }
 
 function select_audio_quality(client_info, channel, idx) {
-  var chunk_sizes = AUDIO_QUALITIES.map(
+  var chunk_sizes = AUDIO_QUALITIES[channel].map(
     vq => get_audio_filepath(channel, vq, idx)).map(
     file => fs.statSync(file).size)
 
-  return AUDIO_QUALITIES[0];
+  return AUDIO_QUALITIES[channel][0];
 }
 
 function StreamingSession(ws) {
