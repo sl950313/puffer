@@ -255,8 +255,8 @@ function WebSocketClient(video, audio, channel_select) {
           audioBufferLen: av_source.getAudioBufferLen(),
           clientStats: get_client_stats(),
           playerStats: {
-            width: video.width,
-            height: video.height,
+            width: video.videoWidth,
+            height: video.videoHeight,
             readyState: video.readyState, // audioState does not contain info
             readyStateMsg: HTML_MEDIA_READY_STATES[video.readyState],
           }

@@ -59,6 +59,16 @@ function get_args() {
       help: 'Timescale, Video Length, Audio Length'
     }
   );
+  parser.addArgument(
+    [ '--algorithm' ],
+    {
+      dest: 'algorithm',
+      type: String,
+      choices: [ 'buffer', 'random' ],
+      defaultValue: 'buffer',
+      help: 'Rate selection algorithm'
+    }
+  );
   var args = parser.parseArgs();
   console.log(args);
   return args;
@@ -87,7 +97,7 @@ function get_video_qualities(channels) {
     var channel_dir = path.join(MEDIA_DIR, channel);
     vqs[channel] = fs.readdirSync(channel_dir).filter(
       entry => entry.match(/^\d+x\d+-\d+$/)
-    );
+    );//.filter(x => x.match(/^1920x1080-\d+/));
   });
   return vqs;
 };
@@ -102,6 +112,8 @@ function get_audio_qualities(channels) {
   });
   return aqs;
 };
+
+const RATE_SELECTION_ALGORITHM = ARGS.algorithm;
 
 const VIDEO_QUALITIES = get_video_qualities(CHANNELS);
 const AUDIO_QUALITIES = get_audio_qualities(CHANNELS);
@@ -239,20 +251,20 @@ function index_of_min(arr) {
   return arr.reduce(
     (i_min, x, i) => x < arr[i_min] ? i : i_min, 0
   );
-};
+}
 
 function index_of_max(arr) {
   return arr.reduce(
     (i_max, x, i) => x > arr[i_max] ? i : i_max, 0
   );
-};
+}
 
 function index_of_nth(arr, n) {
   var x = arr.slice(0).sort()[n];
   return arr.indexOf(x);
-};
+}
 
-function select_video_quality(client_info, channel, idx) {
+function buffer_based_algorithm(client_info, channel, idx) {
   var chunk_sizes = VIDEO_QUALITIES[channel].map(
     vq => get_video_filepath(channel, vq, idx)
   ).map(
@@ -275,6 +287,16 @@ function select_video_quality(client_info, channel, idx) {
       vq = VIDEO_QUALITIES[channel][index_of_nth(chunk_sizes, n)];
     }
     return vq;
+  }
+}
+
+function select_video_quality(client_info, channel, idx) {
+  if (RATE_SELECTION_ALGORITHM == 'buffer') {
+    return buffer_based_algorithm(client_info, channel, idx);
+  } else if (RATE_SELECTION_ALGORITHM == 'random') {
+    return VIDEO_QUALITIES[channel].randomElement();
+  } else {
+    throw Error('unknown rate selection algorithm');
   }
 }
 
