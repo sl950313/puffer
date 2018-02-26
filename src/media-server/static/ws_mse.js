@@ -186,28 +186,29 @@ function WebSocketClient(video, audio, channel_select) {
       }
       av_source = new AVSource(video, audio, message.header);
 
-    } else if (message.header.type == 'audio-init') {
-      console.log(message.header.type, message.header.quality);
-      current_audio_quality = message.header.quality;
-      console.log('received', message.header.type);
-      av_source.appendAudio(message.data);
-
     } else if (message.header.type == 'audio-chunk') {
+      console.log('received', message.header.type, message.header.quality);
+      if (current_audio_quality == message.header.type) {
+        av_source.appendAudio(message.data.slice(message.header.initLength));
+      } else {
+        av_source.appendAudio(message.data);
+      }
+      current_audio_quality = message.header.quality;
       audio_chunks_received += 1;
       audio_bytes_received += message.data.byteLength;
-      console.log('received', message.header.type);
-      av_source.appendAudio(message.data);
-
-    } else if (message.header.type == 'video-init') {
-      current_video_quality = message.header.quality;
-      console.log('received', message.header.type, message.header.quality);
-      av_source.appendVideo(message.data);
+      send_client_info('audio-ack');
 
     } else if (message.header.type == 'video-chunk') {
+      console.log('received', message.header.type, message.header.quality);
+      if (current_video_quality == message.header.quality) {
+        av_source.appendVideo(message.data.slice(message.header.initLength));
+      } else {
+        av_source.appendVideo(message.data);
+      }
+      current_video_quality = message.header.quality;
       video_chunks_received += 1;
       video_bytes_received += message.data.byteLength;
-      console.log('received', message.header.type);
-      av_source.appendVideo(message.data);
+      send_client_info('video-ack');
     }
 
     if (av_source) {

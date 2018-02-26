@@ -89,21 +89,28 @@ if (!fs.existsSync(MEDIA_DIR)) {
 const START_SEGMENT_IDX = ARGS.start_idx;
 const START_SEGMENT_OFFSET = 10;
 
+const MAX_CHUNKS_IN_FLIGHT = 1;
+
 const CHANNELS = ARGS.channels
 
 function get_video_qualities(channels) {
-  vqs = {};
+  var vqs = {};
   channels.forEach(function (channel) {
     var channel_dir = path.join(MEDIA_DIR, channel);
     vqs[channel] = fs.readdirSync(channel_dir).filter(
       entry => entry.match(/^\d+x\d+-\d+$/)
-    );//.filter(x => x.match(/^1920x1080-\d+/));
+    );
+    //.filter(
+    //   x => !x.match(/^3840x2160-\d+/)
+    // ).filter(
+    //   x => !x.match(/^2560x1440-\d+/)
+    // );
   });
   return vqs;
-};
+}
 
 function get_audio_qualities(channels) {
-  aqs = {};
+  var aqs = {};
   channels.forEach(function (channel) {
     var channel_dir = path.join(MEDIA_DIR, channel);
     aqs[channel] = fs.readdirSync(channel_dir).filter(
@@ -111,7 +118,7 @@ function get_audio_qualities(channels) {
     );
   });
   return aqs;
-};
+}
 
 const RATE_SELECTION_ALGORITHM = ARGS.algorithm;
 
@@ -121,19 +128,55 @@ const AUDIO_QUALITIES = get_audio_qualities(CHANNELS);
 console.log('Video:', VIDEO_QUALITIES);
 console.log('Audio:', AUDIO_QUALITIES);
 
-const MAX_BUFFER_LEN = 30;
+function get_video_init_segments(channels, vqs) {
+  var ret = {};
+  channels.forEach(function (channel) {
+    ret[channel] = {};
+    vqs[channel].forEach(function (vq) {
+      ret[channel][vq] = fs.readFileSync(
+        path.join(MEDIA_DIR, channel, vq, 'init.mp4'));
+    });
+  });
+  return ret;
+}
+
+function get_audio_init_segments(channels, aqs) {
+  var ret = {};
+  channels.forEach(function (channel) {
+    ret[channel] = {};
+    aqs[channel].forEach(function (aq) {
+      ret[channel][aq] = fs.readFileSync(
+        path.join(MEDIA_DIR, channel, aq, 'init.webm'));
+    });
+  });
+  return ret;
+}
+
+const VIDEO_INIT_SEGMENTS = get_video_init_segments(CHANNELS, VIDEO_QUALITIES);
+const AUDIO_INIT_SEGMENTS = get_audio_init_segments(CHANNELS, AUDIO_QUALITIES);
+
+const MAX_BUFFER_LEN = 60;
 
 const app = express();
 app.use(express.static(path.join(__dirname, '/static')));
 const server = http.createServer(app);
 
-function create_frame(header, data) {
-  console.log(header);
+function create_frame(header) {
+  var data = [];
+  for (var i = 1; i < arguments.length; i++) {
+    data.push(arguments[i]);
+  };
+  var data_len = data.reduce(function (acc, x) {
+    return acc + x.length;
+  }, 0);
   var header_enc = new encoder.TextEncoder().encode(JSON.stringify(header));
-  var frame = new ArrayBuffer(4 + header_enc.length + data.length);
+  var frame = new ArrayBuffer(4 + header_enc.length + data_len);
   new DataView(frame, 0, 4).setUint32(0, header_enc.length);
   new Uint8Array(frame, 4).set(header_enc);
-  new Uint8Array(frame, 4 + header_enc.length).set(data);
+  data.reduce(function (acc, x) {
+    new Uint8Array(frame, acc).set(x);
+    return acc + x.length;
+  }, 4 + header_enc.length);
   return frame;
 }
 
@@ -151,7 +194,7 @@ function get_newest_video_segment(channel) {
 function send_channel_init(ws, videoOffset) {
   var header = {
     type: 'channel-init',
-    videoCodec: 'video/mp4; codecs="avc1.42E0FF"',
+    videoCodec: 'video/mp4; codecs="avc1.42E020"',
     // this works, avc1.42E0FF works on chrome but not firefox ("avc1.42E020")
     audioCodec: 'audio/webm; codecs="opus"',
     videoOffset: videoOffset,
@@ -165,64 +208,21 @@ function send_channel_init(ws, videoOffset) {
   }
 }
 
-function send_video_init(ws, channel, vq, cb) {
-  fs.readFile(path.join(MEDIA_DIR, channel, vq, 'init.mp4'),
-    function(err, data) {
-      if (err) {
-        console.log(err);
-      } else {
-        try {
-          var header = {
-            type: 'video-init',
-            quality: vq
-          }
-          ws.send(create_frame(header, data));
-          if (cb) cb();
-        } catch (e) {
-          console.log(e);
-        }
-      }
-    });
-}
-
 function get_video_filepath(channel, vq, idx) {
   var begin_time = idx * VIDEO_SEGMENT_LEN;
   return path.join(MEDIA_DIR, channel, vq, String(begin_time) + '.m4s');
 }
 
-function send_video_segment(ws, video_path) {
-  fs.readFile(video_path, function(err, data) {
-    if (err) {
-      console.log(err);
-    } else {
-      try {
-        ws.send(create_frame({ type: 'video-chunk' }, data));
-      } catch (e) {
-        console.log(e);
-      }
-    }
-  })
-}
-
-function send_audio_init(ws, channel, aq, cb) {
-  fs.readFile(path.join(MEDIA_DIR, channel, aq, 'init.webm'),
-    function(err, data) {
-      if (err) {
-        console.log(err);
-      } else {
-        try {
-          var header = {
-            type: 'audio-init',
-            quality: aq,
-            channel: channel
-          }
-          ws.send(create_frame(header, data));
-          if (cb) cb();
-        } catch (e) {
-          console.log(e);
-        }
-      }
-    });
+function send_video_segment(ws, channel, vq, video_path) {
+  var init = VIDEO_INIT_SEGMENTS[channel][vq];
+  var header = {
+    type: 'video-chunk',
+    channel: channel,
+    quality: vq,
+    initLength: init.length
+  };
+  var data = fs.readFileSync(video_path);
+  ws.send(create_frame(header, init, data));
 }
 
 function get_audio_filepath(channel, aq, idx) {
@@ -230,22 +230,20 @@ function get_audio_filepath(channel, aq, idx) {
   return path.join(MEDIA_DIR, channel, aq, String(begin_time) + '.chk');
 }
 
-function send_audio_segment(ws, audio_path) {
-  fs.readFile(audio_path, function(err, data) {
-    if (err) {
-      console.log(err);
-    } else {
-      try {
-        ws.send(create_frame({ type: 'audio-chunk' }, data));
-      } catch (e) {
-        console.log(e);
-      }
-    }
-  });
+function send_audio_segment(ws, channel, aq, audio_path) {
+  var init = AUDIO_INIT_SEGMENTS[channel][aq];
+  var header = {
+    type: 'audio-chunk',
+    channel: channel,
+    quality: aq,
+    initLength: init.length
+  };
+  var data = fs.readFileSync(audio_path);
+  ws.send(create_frame(header, init, data));
 }
 
-RESERVOIR_LEN = 4.0;
-CUSHION_LEN = 15.0;
+RESERVOIR_LEN = 5.0;
+CUSHION_LEN = 30.0;
 
 function index_of_min(arr) {
   return arr.reduce(
@@ -313,6 +311,7 @@ function StreamingSession(ws) {
 
   var channel;
   var video_idx, audio_idx;
+  var video_chunks_sent, audio_chunks_sent;
   var curr_aq, curr_vq;
 
   this.send_available_channels = function() {
@@ -351,6 +350,11 @@ function StreamingSession(ws) {
   };
 
   this.send_video = function(client_info) {
+    if (client_info.clientStats != undefined &&
+        video_chunks_sent - client_info.clientStats.video.chunks > MAX_CHUNKS_IN_FLIGHT) {
+      return;
+    }
+
     var vq;
     try {
       vq = select_video_quality(client_info, channel, video_idx);
@@ -365,20 +369,21 @@ function StreamingSession(ws) {
 
     console.log('Sending video:', video_idx);
     try {
-      var cb = function() { send_video_segment(ws, video_path); };
-      if (curr_vq != vq) {
-        send_video_init(ws, channel, vq, cb);
-      } else {
-        cb();
-      }
+      send_video_segment(ws, channel, vq, video_path);
+      video_idx += 1;
+      video_chunks_sent +=1;
+      curr_vq = vq;
     } catch (e) {
       console.log(e);
     }
-    video_idx += 1;
-    curr_vq = vq;
   };
 
   this.send_audio = function(client_info) {
+    if (client_info.clientStats != undefined &&
+        audio_chunks_sent - client_info.clientStats.audio.chunks > MAX_CHUNKS_IN_FLIGHT) {
+      return;
+    }
+
     var aq;
     try {
       aq = select_audio_quality(client_info, channel, audio_idx);
@@ -393,17 +398,13 @@ function StreamingSession(ws) {
 
     console.log('Sending audio:', audio_idx);
     try {
-      var cb = function() { send_audio_segment(ws, audio_path); };
-      if (curr_aq != aq) {
-        send_audio_init(ws, channel, aq, cb);
-      } else {
-        cb();
-      }
+      send_audio_segment(ws, channel, aq, audio_path);
+      audio_idx += 1;
+      audio_chunks_sent += 1;
+      curr_aq = aq;
     } catch (e) {
       console.log(e);
     }
-    audio_idx += 1;
-    curr_aq = aq;
   };
 }
 
