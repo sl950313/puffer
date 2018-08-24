@@ -4,8 +4,9 @@ const WS_OPEN = 1;
 const GLOBAL_TIMESCALE = 90000;
 
 const TIMER_INTERVAL = 1000;
+const RECONNECT_INTERVAL = 5000;
 const DEBUG_TIMER_INTERVAL = 500;
-const BASE_RECONNECT_BACKOFF = 1000;
+const BASE_RECONNECT_BACKOFF = 100;
 const MAX_RECONNECT_BACKOFF = 15000;
 
 var debug = false;
@@ -311,6 +312,7 @@ function WebSocketClient(video, session_key, username) {
 
   var os = null;
   var browser = null;
+  var last_rcvd_chunk_ts = Date.now();
 
   function send_client_init(ws, channel) {
     if (ws && ws.readyState === WS_OPEN) {
@@ -435,6 +437,7 @@ function WebSocketClient(video, session_key, username) {
       if (av_source && av_source.isOpen() &&
           av_source.getChannel() === message.metadata.channel) {
         av_source.handleVideo(message.data, message.metadata);
+        last_rcvd_chunk_ts = Date.now();
 
         /* estimate throughput */
         var received_data_size = message.data.byteLength * 8;
@@ -521,6 +524,12 @@ function WebSocketClient(video, session_key, username) {
 
   // Start sending status updates to the server
   function timer_helper() {
+  if (Date.now() - last_rcvd_chunk_ts > RECONNECT_INTERVAL) {
+    // Too long without receiving video: Close WS, reconnect
+    last_rcvd_chunk_ts = Date.now();
+    if (ws)
+      ws.close();
+  }
     send_client_info('timer');
     setTimeout(timer_helper, TIMER_INTERVAL);
   }
