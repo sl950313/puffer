@@ -53,7 +53,7 @@ private:
 class WebSocketClient
 {
 public:
-  WebSocketClient(const uint64_t connection_id);
+  WebSocketClient(const uint64_t connection_id, const size_t horizon_length);
 
   void init(const std::string & channel,
             const uint64_t vts, const uint64_t ats);
@@ -100,6 +100,10 @@ public:
   std::optional<double> curr_tput() const { return curr_tput_; }
 
   std::optional<time_t> get_last_msg_time() const { return last_msg_time_; }
+  std::optional<uint64_t> last_send_vt() const { return last_send_vt_; }
+  const std::deque< std::pair<uint64_t, uint64_t> > & last_dltimes() const {
+    return last_dltimes_;
+  }
 
   /* mutators */
   void set_authenticated(const bool authenticated) { authenticated_ = authenticated; }
@@ -137,6 +141,9 @@ public:
   void set_curr_tput(const double curr_tput) { curr_tput_ = curr_tput; }
 
   void set_last_msg_time(const time_t t) { last_msg_time_ = t; }
+  void set_last_send_vt(const uint64_t t) { last_send_vt_ = t; }
+  void reset_last_send_vt() { last_send_vt_.reset(); }
+  void update_last_dltimes(const uint64_t dl_time, const int64_t dl_size);
 
 private:
   uint64_t connection_id_ {};
@@ -175,6 +182,13 @@ private:
   /* next video and audio timestamps requested from the client */
   std::optional<uint64_t> client_next_vts_ {};
   std::optional<uint64_t> client_next_ats_ {};
+
+  /* the sending time of the latest video chunk */
+  std::optional<uint64_t> last_send_vt_ {};
+
+  size_t horizon_length_ {};
+  /* the downtime and sizes of previous video chunks */
+  std::deque< std::pair<uint64_t, uint64_t> > last_dltimes_ {};
 
   bool rebuffering_ {false};
   std::optional<double> curr_tput_ {};

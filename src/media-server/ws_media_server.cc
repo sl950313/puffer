@@ -24,6 +24,7 @@
 #include "client_message.hh"
 #include "ws_server.hh"
 #include "ws_client.hh"
+#include "timestamp.hh"
 
 using namespace std;
 using namespace PollerShortNames;
@@ -40,6 +41,7 @@ static bool debug = false;
 static const unsigned int MAX_BUFFER_S = 10;
 static const size_t MAX_WS_FRAME_B = 100 * 1024;  /* 10 KB */
 static const size_t MAX_WS_FRAME_NUM = 10;  /* 10 * MAX_WS_FRAME_B */
+static const size_t HORIZON_LENGTH = 5;
 
 /* drop a client if have not received messaged from it for 10 seconds */
 static const unsigned int MAX_IDLE_S = 10;
@@ -293,6 +295,9 @@ void serve_video_to_client(WebSocketServer & server, WebSocketClient & client)
     cerr << client.signature() << ": channel " << channel.name()
          << ", continuing video " << next_vts << endl;
   }
+
+  /* record the sending time */
+  client.set_last_send_vt(timestamp_ms());
 
   for (size_t num = 0; num < MAX_WS_FRAME_NUM; num++) {
     VideoSegment & next_vsegment = client.next_vsegment().value();
@@ -679,6 +684,16 @@ void handle_client_info(WebSocketClient & client, const ClientInfoMsg & msg)
           + *msg.quality + " " + to_string(*msg.ssim);
       cerr << log_line << endl;
       append_to_log("video_quality", log_line);
+
+      /* record the download time and size */
+      if (client.last_send_vt()) {
+        client.update_last_dltimes(timestamp_ms() - *client.last_send_vt(),
+          *msg.total_byte_length);
+        client.reset_last_send_vt();
+      } else {
+        cerr << client.signature()
+             << ": Error: server didn't send video but get Vack" << endl;
+      }
     }
 
     /* get current throughput (measured in kpbs) of the client */
@@ -898,7 +913,8 @@ int main(int argc, char * argv[])
 
         clients.emplace(piecewise_construct,
                         forward_as_tuple(connection_id),
-                        forward_as_tuple(connection_id)); /* WebSocketClient */
+                        forward_as_tuple(connection_id,
+                                         HORIZON_LENGTH)); /* WebSocketClient */
       } catch (const exception & e) {
         cerr << client_signature(connection_id)
              << ": warning in open callback: " << e.what() << endl;

@@ -49,9 +49,11 @@ AudioSegment::AudioSegment(const AudioFormat & format, mmap_t & data,
   : MediaSegment(data, init), format_(format)
 {}
 
-WebSocketClient::WebSocketClient(const uint64_t connection_id)
+WebSocketClient::WebSocketClient(const uint64_t connection_id,
+                                 const size_t horizon_length)
 {
   connection_id_ = connection_id;
+  horizon_length_ = horizon_length;
 }
 
 void WebSocketClient::init(const string & channel,
@@ -132,4 +134,13 @@ optional<uint64_t> WebSocketClient::audio_in_flight() const
   }
 
   return *next_ats_ - *client_next_ats_;
+}
+
+void WebSocketClient::update_last_dltimes(const uint64_t dl_time,
+                                          const int64_t dl_size)
+{
+  last_dltimes_.push_back({dl_time, dl_size});
+  if (last_dltimes_.size() > horizon_length_) {
+    last_dltimes_.pop_front();
+  }
 }
