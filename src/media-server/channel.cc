@@ -128,12 +128,12 @@ mmap_t & Channel::vdata(const VideoFormat & format, const uint64_t ts)
   return vdata_.at(ts).at(format);
 }
 
-map<VideoFormat, mmap_t> & Channel::vdata(const uint64_t ts)
+const map<VideoFormat, mmap_t> & Channel::vdata(const uint64_t ts) const
 {
   return vdata_.at(ts);
 }
 
-double Channel::vssim(const VideoFormat & format, const uint64_t ts)
+double Channel::vssim(const VideoFormat & format, const uint64_t ts) const
 {
   return vssim_.at(ts).at(format);
 }

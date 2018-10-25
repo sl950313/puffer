@@ -33,8 +33,8 @@ public:
   bool vready(const uint64_t ts) const;
   mmap_t & vinit(const VideoFormat & format);
   mmap_t & vdata(const VideoFormat & format, const uint64_t ts);
-  std::map<VideoFormat, mmap_t> & vdata(const uint64_t ts);
-  double vssim(const VideoFormat & format, const uint64_t ts);
+  const std::map<VideoFormat, mmap_t> & vdata(const uint64_t ts) const;
+  double vssim(const VideoFormat & format, const uint64_t ts) const;
   std::map<VideoFormat, double> & vssim(const uint64_t ts);
 
   bool aready(const uint64_t ts) const;
