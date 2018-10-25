@@ -1,7 +1,8 @@
 AM_CPPFLAGS = $(CXX17_FLAGS) $(SSL_CFLAGS) -I$(srcdir)/../util \
 	-I$(srcdir)/../net -I$(srcdir)/../notifier -I$(srcdir)/../wrappers \
 	-I$(srcdir)/../monitoring \
-	-isystem$(srcdir)/../../third_party/json.upstream/single_include/nlohmann $(POSTGRES_CFLAGS)
+	-isystem$(srcdir)/../../third_party/json.upstream/single_include/nlohmann \
+	-I$(srcdir)/../abr $(POSTGRES_CFLAGS)
 AM_CXXFLAGS = $(PICKY_CXXFLAGS) $(EXTRA_CXXFLAGS)
 
 bin_PROGRAMS = ws_media_server run_servers
@@ -11,7 +12,8 @@ ws_media_server_SOURCES = \
   client_message.hh client_message.cc server_message.hh server_message.cc \
 	../wrappers/media_formats.hh ../wrappers/media_formats.cc \
 	../notifier/inotify.hh ../notifier/inotify.cc \
-	../../third_party/json.upstream/single_include/nlohmann/json.hpp
+	../../third_party/json.upstream/single_include/nlohmann/json.hpp \
+	../abr/abr_algo.hh ../abr/mpc.hh ../abr/mpc.cc
 ws_media_server_LDADD = ../net/libnet.a ../util/libutil.a ../net/libnet.a \
 	$(POSTGRES_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(YAML_LIBS) -lstdc++fs
 

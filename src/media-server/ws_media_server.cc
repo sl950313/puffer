@@ -25,6 +25,7 @@
 #include "ws_server.hh"
 #include "ws_client.hh"
 #include "timestamp.hh"
+#include "mpc.hh"
 
 using namespace std;
 using namespace PollerShortNames;
@@ -59,6 +60,9 @@ static const unsigned int MAX_LOG_FILESIZE = 10 * 1024 * 1024;  /* 10 MB */
 static unsigned int log_rebuffer_num = 0;
 static time_t last_minute = 0;
 
+/* for abr algorithm */
+static unique_ptr<ABRAlgo> abr_algo;
+
 void print_usage(const string & program_name)
 {
   cerr << program_name << " <YAML configuration> <server ID> [debug]" << endl;
@@ -79,6 +83,18 @@ const VideoFormat & select_video_quality(WebSocketClient & client)
 {
   // TODO: make a better choice
   Channel & channel = channels.at(client.channel());
+
+  if (abr_algo) {
+    try {
+      if (abr_algo->is_ready(client, channel)) {
+        return abr_algo->select_video_quality(client, channel);
+      }
+    } catch (const exception & e) {
+      cerr << client.signature()
+           << ": running the select algorithm failed once: "
+           << e.what() << endl;
+    }
+  }
 
   /* simple buffer-based algorithm: assume max buffer is 10 seconds */
   double buf = min(max(client.video_playback_buf(), 0.0), 10.0);
@@ -842,6 +858,13 @@ int main(int argc, char * argv[])
   /* load channels and mmap existing and newly created media files */
   Inotify inotify(server.poller());
   load_channels(config, inotify);
+
+  /* load the abr algorithm */
+  if (config["abr algorithm"]) {
+    if (config["abr algorithm"].as<string>() == "mpc") {
+      abr_algo = make_unique<MPCAlgo>(MAX_BUFFER_S);
+    }
+  }
 
   /* set server callbacks */
   server.set_message_callback(
