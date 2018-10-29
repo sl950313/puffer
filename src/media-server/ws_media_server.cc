@@ -770,6 +770,21 @@ void load_channels(const YAML::Node & config, Inotify & inotify)
   }
 }
 
+void load_algorithm(const YAML::Node & config)
+{
+  if (config["abr algorithm"]) {
+    const string & algo_name = "algo-" + config["abr algorithm"].as<string>();
+
+    if (not config[algo_name]) {
+      throw runtime_error("Cannot find details of the algorithm: " + algo_name);
+    }
+
+    if (algo_name == "algo-mpc") {
+      abr_algo = make_unique<MPCAlgo>(MAX_BUFFER_S, config[algo_name]);
+    }
+  }
+}
+
 bool auth_client(const string & session_key, pqxx::nontransaction & db_work)
 {
   try {
@@ -859,12 +874,8 @@ int main(int argc, char * argv[])
   Inotify inotify(server.poller());
   load_channels(config, inotify);
 
-  /* load the abr algorithm */
-  if (config["abr algorithm"]) {
-    if (config["abr algorithm"].as<string>() == "mpc") {
-      abr_algo = make_unique<MPCAlgo>(MAX_BUFFER_S);
-    }
-  }
+  /* load the video select algorithm */
+  load_algorithm(config);
 
   /* set server callbacks */
   server.set_message_callback(
